@@ -26,7 +26,7 @@
       width: 100%;
       background-color: var(--white);
       border: var(--border-in-light);
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       animation: slide-in ease 0.3s;
     }
 
@@ -64,7 +64,7 @@
       border: var(--border-in-light);
       animation: slide-in ease 0.3s;
       background-color: var(--white);
-      transition: all 0.3s ease;
+      transition: all var(--duration-slow) ease;
 
       &.disabled {
         opacity: 0.7;
@@ -110,7 +110,7 @@
         align-items: center;
         margin-left: 10px;
         padding: 2px 8px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         font-size: 12px;
         background-color: #16a34a;
         color: #fff;
@@ -154,7 +154,7 @@
             align-items: center;
             margin-left: 10px;
             padding: 2px 8px;
-            border-radius: 4px;
+            border-radius: var(--radius-xs);
             font-size: 12px;
             background-color: #22c55e;
             color: #fff;
@@ -187,7 +187,7 @@
           gap: 4px;
           text-decoration: none;
           opacity: 0.8;
-          transition: opacity 0.2s;
+          transition: opacity var(--duration-base);
 
           &:hover {
             opacity: 1;
@@ -210,7 +210,7 @@
           background: var(--gray);
           color: var(--black);
           padding: 2px 6px;
-          border-radius: 4px;
+          border-radius: var(--radius-xs);
           font-size: 10px;
           opacity: 0.8;
         }
@@ -231,77 +231,6 @@
           min-width: 180px;
           justify-content: flex-end;
         }
-      }
-    }
-  }
-
-  .array-input {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    width: 100%;
-    padding: 16px;
-    border: 1px solid var(--gray-200);
-    border-radius: 10px;
-    background-color: var(--white);
-
-    .array-input-item {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      width: 100%;
-      padding: 0;
-
-      input {
-        width: 100%;
-        padding: 8px 12px;
-        background-color: var(--gray-50);
-        border-radius: 6px;
-        transition: all 0.3s ease;
-        font-size: 13px;
-        border: 1px solid var(--gray-200);
-
-        &:hover {
-          background-color: var(--gray-100);
-          border-color: var(--gray-300);
-        }
-
-        &:focus {
-          background-color: var(--white);
-          border-color: var(--primary);
-          outline: none;
-          box-shadow: 0 0 0 2px var(--primary-10);
-        }
-
-        &::placeholder {
-          color: var(--gray-300);
-        }
-      }
-    }
-
-    :global(.icon-button.add-path-button) {
-      width: 100%;
-      background-color: var(--primary);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      transition: all 0.3s ease;
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: none;
-      height: 36px;
-
-      &:hover {
-        background-color: var(--primary-dark);
-      }
-
-      svg {
-        width: 16px;
-        height: 16px;
-        margin-right: 4px;
-        filter: brightness(2);
       }
     }
   }
@@ -345,193 +274,36 @@
         max-width: 100%;
         padding: 10px;
         border: var(--border-in-light);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         box-sizing: border-box;
         font-size: 14px;
         background-color: var(--white);
         color: var(--black);
 
         &:hover {
-          border-color: var(--gray-300);
+          border-color: color-mix(in srgb, var(--primary) 50%, transparent);
         }
 
         &:focus {
           border-color: var(--primary);
           outline: none;
-          box-shadow: 0 0 0 2px var(--primary-10);
+          box-shadow: 0 0 0 2px
+            color-mix(in srgb, var(--primary) 10%, transparent);
         }
       }
 
-      /* 边框/背景/hover 由 globals.scss 中的 .nextchat-default-button 接管。
-         本类只保留 padding、color 与 svg 尺寸等微调。*/
-      .browse-button,
       .delete-button {
         padding: 8px;
-        color: var(--black-50);
-      }
-
-      .browse-button:hover {
-        color: var(--primary);
+        color: var(--text-muted);
       }
 
       .delete-button:hover {
-        color: var(--danger);
+        color: var(--danger-color);
       }
 
-      .browse-button svg,
       .delete-button svg {
         width: 16px;
         height: 16px;
-      }
-
-      .file-input {
-        display: none;
-      }
-    }
-  }
-
-  .config-section {
-    width: 100%;
-
-    .config-header {
-      margin-bottom: 12px;
-
-      .config-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--black);
-        text-transform: capitalize;
-      }
-
-      .config-description {
-        font-size: 12px;
-        color: var(--gray-500);
-        margin-top: 4px;
-      }
-    }
-
-    .array-input {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      width: 100%;
-      padding: 16px;
-      border: 1px solid var(--gray-200);
-      border-radius: 10px;
-      background-color: var(--white);
-
-      .array-input-item {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        width: 100%;
-        padding: 0;
-
-        input {
-          width: 100%;
-          padding: 8px 12px;
-          background-color: var(--gray-50);
-          border-radius: 6px;
-          transition: all 0.3s ease;
-          font-size: 13px;
-          border: 1px solid var(--gray-200);
-
-          &:hover {
-            background-color: var(--gray-100);
-            border-color: var(--gray-300);
-          }
-
-          &:focus {
-            background-color: var(--white);
-            border-color: var(--primary);
-            outline: none;
-            box-shadow: 0 0 0 2px var(--primary-10);
-          }
-
-          &::placeholder {
-            color: var(--gray-300);
-          }
-        }
-
-        :global(.icon-button) {
-          width: 32px;
-          height: 32px;
-          padding: 0;
-          border-radius: 6px;
-          background-color: transparent;
-          border: 1px solid var(--gray-200);
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          &:hover {
-            background-color: var(--gray-100);
-            border-color: var(--gray-300);
-          }
-
-          svg {
-            width: 16px;
-            height: 16px;
-            opacity: 0.7;
-          }
-        }
-      }
-
-      :global(.icon-button.add-path-button) {
-        width: 100%;
-        background-color: var(--primary);
-        color: white;
-        padding: 8px 12px;
-        border-radius: 6px;
-        transition: all 0.3s ease;
-        margin-top: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        height: 36px;
-
-        &:hover {
-          background-color: var(--primary-dark);
-        }
-
-        svg {
-          width: 16px;
-          height: 16px;
-          margin-right: 4px;
-          filter: brightness(2);
-        }
-      }
-    }
-  }
-
-  .input-item {
-    width: 100%;
-
-    input {
-      width: 100%;
-      padding: 10px;
-      border: var(--border-in-light);
-      border-radius: 10px;
-      box-sizing: border-box;
-      font-size: 14px;
-      background-color: var(--white);
-      color: var(--black);
-
-      &:hover {
-        border-color: var(--gray-300);
-      }
-
-      &:focus {
-        border-color: var(--primary);
-        outline: none;
-        box-shadow: 0 0 0 2px var(--primary-10);
-      }
-
-      &::placeholder {
-        color: var(--gray-300) !important;
-        opacity: 1;
       }
     }
   }
@@ -564,7 +336,7 @@
 
       .tool-description {
         font-size: 13px;
-        color: var(--gray-500);
+        color: var(--text-muted);
         line-height: 1.6;
         padding-left: 15px;
         box-sizing: border-box;
@@ -589,7 +361,7 @@
     .list-item {
       border: none;
       background-color: transparent;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       padding: 10px;
       margin-bottom: 10px;
       display: flex;
@@ -608,7 +380,7 @@
 
         .list-sub-title {
           font-size: 12px;
-          color: var(--gray-500);
+          color: var(--text-muted);
           margin-top: 4px;
         }
       }

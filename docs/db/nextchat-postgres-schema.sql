@@ -1,6 +1,6 @@
 -- NextChat PostgreSQL schema
--- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-16 (备份 schema 2026-07-16-chat-backup-batch-audit：全员备份批次审计)
+-- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() 保持一致
+-- 最后更新: 2026-10-21 (移除未使用的 /api/site-auth 与 ensureSitePasswordConfigured()，site_access_settings 转为遗留表)
 -- 当前运行时 schema 版本：
 --   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-14-provider-model-key-route-cache"
 --   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-16-chat-backup-batch-audit"
@@ -156,6 +156,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_cache_files_user_content_data
 ON user_cache_files(user_id, content_type, md5(data))
 WHERE blob_id IS NULL AND data IS NOT NULL;
 
+-- 遗留表：原 /api/site-auth 站点访问密码使用，2026-10-21 起运行时不再创建或读写；
+-- 已有库保留原表与数据，不做 DROP。
 CREATE TABLE IF NOT EXISTS site_access_settings (
   setting_key text PRIMARY KEY,
   password_hash text NOT NULL,
@@ -484,7 +486,7 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 COMMENT ON TABLE app_users IS '用户主表';
 COMMENT ON TABLE auth_sessions IS '登录会话（token 哈希存储）';
 COMMENT ON TABLE app_settings IS '应用设置（JSONB key-value store）；默认同步用户的 app-config 为全用户共享对话设置';
-COMMENT ON TABLE site_access_settings IS '站点访问密码';
+COMMENT ON TABLE site_access_settings IS '遗留：原站点访问密码哈希，运行时已不再使用';
 COMMENT ON TABLE deployment_metadata IS '部署成功后记录的实际线上 Git 版本';
 COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw-list 快照）';
 COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';

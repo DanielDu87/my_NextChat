@@ -1,6 +1,6 @@
 # NextChat 开发指南
 
-> 本文档以当前代码为准（最后更新：2026-07-25）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
+> 本文档以当前代码为准（最后更新：2026-10-21）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
 >
 > 相关文档：[README.md](../README.md)、[AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md)、[docs/db/nextchat-postgres-schema.sql](db/nextchat-postgres-schema.sql)。
 
@@ -57,7 +57,7 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 
 Code Interpreter 返回的生成文件必须先写入当前用户的 `/api/cache/<uuid>.<ext>`，再把工具结果和助手正文中的临时沙箱路径改写为缓存链接。链接改写同时兼容 `sandbox:/mnt/data/...` 与 `sandbox:/tmp/...`；文件被解释器重命名时，先按文件名精确匹配，无法同名时仅在相同扩展名的沙箱引用与生成文件能够一一对应时按返回顺序建立别名，数量不一致或存在歧义时不得猜测。工具结果会持久化这些别名，使流式更新、最终写回和历史消息重新渲染复用同一映射。Markdown 与文件预览允许同源 `/api/cache/...`、HTTP(S) 和受控 Blob 地址；未能映射的 `sandbox:` 链接只显示失效提示，不得发起 Fetch 或提供无效预览入口，用户继续使用工具结果末尾自动追加的真实下载链接。
 
-Word（DOCX）预览弹窗使用 `docx-preview` 渲染。预览根容器 `.docx-preview-root` 是滚动 owner，固定 `flex: 1; min-height: 0; overflow-y: auto`，内部 `.docx-preview-container` 仅作为普通纵向 flex 容器，不再写死 `height: 100% / flex: 1`。`applyDocxSectionSizing()`（`file-preview.tsx`）在渲染同步帧、`requestAnimationFrame` 和 100ms 延时后，根据 `.docx-preview-root` 扣除上下 padding 后的实际正文高度，为渲染出的 `section.docx` 设置动态 `min-height`，并使用 `box-sizing: border-box` 把 Word 页内边距计入该最小高度；同时覆盖 DOCX 原始页边距（常见内联值为 `72pt 90pt`），统一收敛为响应式 `clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px)`，避免预览窗口内正文区域被大幅压缩。因此只有几行内容的短 Word 也会以白色文档页铺满预览正文区，长文档仍保持 `height: auto; max-height: none; flex: 0 0 auto` 并继续按内容增长，超过根容器视口时由外层滚动条接管。不要恢复把 `section.docx` 强制为固定 `height: 100% / flex: 1` 的写法，否则长文档会被父级 flex 容器截断。该约束同样适用于移动端 `.docx-preview-container { align-items: flex-start; }` 重写；移动端的宽度自适应仍由 `applyDocxAutoScale` 按容器宽度等比缩放负责。
+文件预览（PDF / Word / Excel / 文本）的样式位于 `app/components/file-preview.module.scss`，附件卡片 `attach-file-*` 与聊天输入区共用，仍在 `chat.module.scss`。Word（DOCX）预览弹窗使用 `docx-preview` 渲染。预览根容器 `.docx-preview-root` 是滚动 owner，固定 `flex: 1; min-height: 0; overflow-y: auto`，内部 `.docx-preview-container` 仅作为普通纵向 flex 容器，不再写死 `height: 100% / flex: 1`。`applyDocxSectionSizing()`（`file-preview.tsx`）在渲染同步帧、`requestAnimationFrame` 和 100ms 延时后，根据 `.docx-preview-root` 扣除上下 padding 后的实际正文高度，为渲染出的 `section.docx` 设置动态 `min-height`，并使用 `box-sizing: border-box` 把 Word 页内边距计入该最小高度；同时覆盖 DOCX 原始页边距（常见内联值为 `72pt 90pt`），统一收敛为响应式 `clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px)`，避免预览窗口内正文区域被大幅压缩。因此只有几行内容的短 Word 也会以白色文档页铺满预览正文区，长文档仍保持 `height: auto; max-height: none; flex: 0 0 auto` 并继续按内容增长，超过根容器视口时由外层滚动条接管。不要恢复把 `section.docx` 强制为固定 `height: 100% / flex: 1` 的写法，否则长文档会被父级 flex 容器截断。该约束同样适用于移动端 `.docx-preview-container { align-items: flex-start; }` 重写；移动端的宽度自适应仍由 `applyDocxAutoScale` 按容器宽度等比缩放负责。
 
 候选成功后必须走全局模型的 localStorage-first 链路：先将成功候选写入当前会话的手动模型选择记录和 `nextchat:global-model-config`，再更新当前会话、Config Store 与 Access Store，最后后台同步 `Config` / `Access` / `Chat`。因此当前消息、页面顶部模型选择器、下一轮请求、后续新对话和跨用户默认模型都会立即切换到成功候选；旧的会话级手动选择记录不能覆盖自动重试成功结果。用户在模型选择器手动选择供应商时，重试候选仅限该供应商，禁止切换到其他供应商并覆盖该选择；未手动选择时维持既有跨供应商故障转移。对话页余额栏必须优先使用最近一次重试成功消息保存的 `profileId` / `providerId`，不能在会话配置异步同步期间继续显示原 API 的余额；回复完成后触发的自动余额查询也必须查询并写回该成功 API 对应的 Profile。API 切换或状态同步导致在途余额请求被主动取消时，必须释放对应刷新信号，让稳定后的最终 Profile 自动重新查询，不能把已取消请求误记为已完成。对话页自动余额查询在刷新信号稳定 250ms 后再发起，成功后必须通过统一 `[Chat]` 日志输出最终 Profile 和余额值。自动重试始终启用，不提供按钮、设置项或人工上限。
 
@@ -207,3 +207,31 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc \
 - 镜像基于 `scripts/code-interpreter/Dockerfile` 构建，名称固定为 `codeinterpreter-api-local:latest`；`build` 时同步重建。普通业务代码改动通过 `nextchat-dev` 热加载即可，**不要**重启或重建 Code Interpreter 容器。
 - 只有改了 `scripts/code-interpreter/Dockerfile`、`requirements.nextchat.txt` 或 `nextchat_runtime.py` 才需要 `--build codeinterpreter-local`。
 - 容器不映射宿主机端口，5000 只通过 Docker 内网暴露给 `nextchat-dev`；生产和灾备仍走 `scripts/code-interpreter/docker-compose.codeinterpreter.yml`（`codeinterpreter-api-baota:latest`）。
+
+## 绘图记录同步合并（DrawList）
+
+`app/utils/sync.ts` 的 DrawList 合并策略按记录 id 取**并集**：本地、当前内存与远端三方的绘图记录全部保留，只剔除任意一端 `deletedTaskIds`（同样取并集，最多 300 条）中的 id，合并结果按 `requestedAt` 倒序。不要改回“哪边 `lastUpdateTime` 新就整体用哪边”：新浏览器启动时任意一次 `markUpdate()` 都会让本地空状态显得更新，从而把远端全部历史覆盖为空（2026-10-21/22 曾两次覆盖 admin 的绘图历史）。删除 / 清空全部依赖 `deletedTaskIds` 跨设备传播。
+
+## 本地容器 DNS 与线程池（nextchat-dev）
+
+宿主机代理（如 Shadowrocket，DNS `198.18.0.2`）对部分域名（例如 `nexus.itssx.com`）只应答 A、不应答 AAAA。Alpine/musl 的 `getaddrinfo` 默认同时查 A + AAAA，会等 5 秒后整体失败（`EAI_AGAIN`）；Node 的 `dns.lookup` 跑在默认只有 4 个线程的 libuv 线程池里，几个慢解析就会让连 `postgres-ssh-tunnel` 的解析也排队超过 `PG_CONNECT_TIMEOUT_MS`，表现为“获取模型 / 余额全部网络失败”和大量 `Connection terminated due to connection timeout`。
+
+`docker-compose.yml` 的 `nextchat-dev` 因此固定：
+
+- `NODE_OPTIONS=... --require /app/scripts/dev-ipv4-first-dns.cjs`：未指定 family 的解析先只查 IPv4，失败再回退原始解析；
+- `UV_THREADPOOL_SIZE=64`：慢解析不再占满线程池。
+
+只作用于本地开发容器，生产镜像不加载。修改后需重建 `nextchat-dev` 容器（`up -d nextchat-dev`）才会生效，无需重新构建镜像。
+
+## 服务端鉴权与可靠性约定
+
+- **所有会代表服务端发起外部请求或执行命令的入口都必须登录**：`/api/proxy/*`、`/api/[provider]/*`、`/api/tencent`、`/api/model-probe`（内部转发 `/api/proxy` 时带上原请求 cookie）。模型代理统一调用 `app/api/auth.ts` 的 `requireApiSession`。
+- **MCP Server Actions**（`app/mcp/actions.ts`）的 Action ID 随客户端 bundle 公开，每个导出函数必须先校验 `ENABLE_MCP` 与登录态；增删改、暂停/恢复、重启 MCP 服务器仅管理员可操作（本地免登录模式放行）。MCP 关闭时 `getAllTools` / `getAvailableClientsCount` 直接返回空结果。
+- **切换用户 cookie**（`nextchat_effective_user`）只对管理员会话生效；普通用户伪造该 cookie 不会改变有效用户，非法 UUID 按未切换处理。
+- **共享插件库**（`StoreKey.Plugin`）仅管理员（及本地免登录模式）可写，普通用户写入返回 403 `admin_only_store`；插件内容在编辑器中按纯文本渲染。
+- **通用代理**：`x-base-url` 必须是 http/https，拒绝 `169.254.0.0/16`、`fe80::/10`、`metadata.google.internal`；服务端 `OPENAI_API_KEY` 只在主机名精确等于 `api.openai.com` 时附带。请求体先缓冲再转发，baseURL 自适应重试 POST 时可重复发送；客户端断开与 10 分钟超时任一触发都会中止上游请求；自适应缓存最多 200 条。
+- **大请求体**：`PUT /api/db/sync/[key]`、`POST /api/cache/upload` 先鉴权并按 `Content-Length` 预检，再读取请求体。
+- **数据库降级**：`GET /api/db/sync/[key]` 在 PostgreSQL 暂不可用时返回 503（客户端按 5xx 重试），不再返回空 200，避免被当作「远端无数据」。
+- **连接池重建**：主库与备份库重试时，只有连接层错误、且全局池仍是本次尝试所用的池时才关闭重建；`too many clients`、数据库启动中、`tuple concurrently updated` 只退避重试。
+- **`/api/db/health`**：匿名只返回 `{ ok }`，PG 版本、库名、账号、主机仅管理员或本地免登录模式可见。
+- **流式输出持久化**：会话中存在 `streaming` 消息时，`updateTargetSession` 对 IndexedDB 落盘节流为每秒一次（触发时按 id 读取最新会话），流式结束后立即落盘；侧边栏与聊天页辅助组件只订阅所需的 store 字段。

@@ -589,6 +589,42 @@ function normalizeDrawItemForSync(item: any) {
   return nextItem;
 }
 
+// 与 app/store/draw.ts 的 markTaskDeleted 保持一致：只保留最近 300 条删除标记。
+const MAX_DELETED_DRAW_TASK_IDS = 300;
+
+function mergeDeletedTaskIds(...sources: unknown[]): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const source of sources) {
+    if (!isObjectLike(source)) continue;
+    for (const [id, value] of Object.entries(source)) {
+      const deletedAt = Number(value) || 0;
+      if (id && (!(id in merged) || deletedAt > merged[id])) {
+        merged[id] = deletedAt;
+      }
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(merged)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_DELETED_DRAW_TASK_IDS),
+  );
+}
+
+function getDrawRequestedAt(item: any) {
+  return Number(item?.requestedAt) || Number(item?.resumedAt) || 0;
+}
+
+// 合并后按发起时间倒序（与界面“最新在前”一致）；没有时间的记录保持原相对顺序。
+function sortDrawByRequestedAt<T>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const diff = getDrawRequestedAt(b.item) - getDrawRequestedAt(a.item);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
+
 function normalizeDrawSyncState<T extends Record<string, any>>(state: T): T {
   const syncState = { ...state };
   for (const field of DRAW_LOCAL_ONLY_FIELDS) {
@@ -1324,15 +1360,12 @@ const MergeStates: StateMerger = {
     const currentDraw = Array.isArray(currentDrawState?.draw)
       ? currentDrawState.draw
       : [];
-    const deletedTaskIds = ((): Record<string, unknown> => {
-      if (isObjectLike(currentDrawState?.deletedTaskIds)) {
-        return currentDrawState.deletedTaskIds as Record<string, unknown>;
-      }
-      if (isObjectLike((localState as any)?.deletedTaskIds)) {
-        return (localState as any).deletedTaskIds as Record<string, unknown>;
-      }
-      return {};
-    })();
+    // 删除标记取三方并集：任何一端明确删除过的记录都不再出现，删除可以跨设备传播。
+    const deletedTaskIds = mergeDeletedTaskIds(
+      currentDrawState?.deletedTaskIds,
+      (localState as any)?.deletedTaskIds,
+      (remoteState as any)?.deletedTaskIds,
+    );
     const sourceDraw = (
       Array.isArray(sourceState?.draw) ? sourceState.draw : []
     ).filter((item: any) => {
@@ -1343,7 +1376,10 @@ const MergeStates: StateMerger = {
     const sourceDrawIds = new Set(
       sourceDraw.map((item: any) => String(item?.id || "")).filter(Boolean),
     );
-    const extraLocalDraw = [...currentDraw, ...localDraw].filter(
+    // 按记录 id 取并集：本地较新时也必须保留只存在于远端的记录。
+    // 否则新浏览器在启动阶段任意一次 markUpdate 让本地空状态“更新”，就会把远端历史整体覆盖为空。
+    const remoteDraw = Array.isArray(remoteState?.draw) ? remoteState.draw : [];
+    const extraDraw = [...currentDraw, ...localDraw, ...remoteDraw].filter(
       (item: any) => {
         const id = String(item?.id || "");
         if (!id || deletedTaskIds[id] || sourceDrawIds.has(id)) {
@@ -1354,8 +1390,8 @@ const MergeStates: StateMerger = {
       },
     );
     const mergedDraw =
-      extraLocalDraw.length > 0
-        ? [...extraLocalDraw, ...sourceDraw]
+      extraDraw.length > 0
+        ? sortDrawByRequestedAt([...extraDraw, ...sourceDraw])
         : sourceDraw;
 
     const sourceLabel = sourceState === remoteState ? "远端" : "本地";
@@ -1388,6 +1424,7 @@ const MergeStates: StateMerger = {
     const mergedState = {
       ...sourceState,
       draw: mergedDraw,
+      deletedTaskIds,
       lastUpdateTime: markMergedUpdateTime(localUpdateTime, remoteUpdateTime),
     };
 

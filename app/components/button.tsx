@@ -68,9 +68,8 @@ export function IconButton(props: {
         <div
           aria-label={props.aria || props.title}
           className={clsx(styles["icon-button-icon"], {
-            /* type=primary 和 type=green 时 no-dark 用于排除暗色模式 div:not(.no-dark) > svg 的
-               invert(0.5) 滤镜。chat-input-send / chat-export-action / prompt-picker-manage
-               也是同理：需要阻止全局反相滤镜覆盖图标颜色。 */
+            /* no-dark 标记“图标颜色由按钮自身控制”的按钮（主按钮、绿按钮及 chat-input-send 等），
+               暗色全局反相滤镜已移除，这里仅保留为样式钩子。 */
             "no-dark":
               props.type === "primary" ||
               props.type === "green" ||

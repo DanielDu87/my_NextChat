@@ -72,14 +72,19 @@ export async function GET(_: NextRequest, { params }: Params) {
       },
     });
   } catch (error) {
+    // 数据库暂不可用时必须返回 503：空 200 会被客户端当作「远端无数据」，
+    // 新设备会以默认状态初始化，存在后续覆盖真实数据的风险。客户端对 5xx 会重试。
     if (isPostgresTemporarilyUnavailableError(error)) {
-      return new Response("", {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-          "X-NextChat-Degraded": "1",
+      return NextResponse.json(
+        { ok: false, error: "postgres_temporarily_unavailable" },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+            "Retry-After": "5",
+          },
         },
-      });
+      );
     }
     const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
@@ -101,6 +106,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
       );
     }
 
+    // 先鉴权并按 Content-Length 预检，再读取请求体，避免匿名请求让服务端缓冲大包。
+    const userId = await requireWritableStoreSyncUserId(params.key, req);
+    const declaredBytes = Number(req.headers.get("content-length") || 0);
+    if (declaredBytes > MAX_PUT_BODY_BYTES) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `payload_too_large_${declaredBytes}_max_${MAX_PUT_BODY_BYTES}`,
+        },
+        { status: 413 },
+      );
+    }
+
     const rawBody = await req.text();
     const bodyBytes = Buffer.byteLength(rawBody, "utf8");
     if (bodyBytes > MAX_PUT_BODY_BYTES) {
@@ -117,7 +135,6 @@ export async function PUT(req: NextRequest, { params }: Params) {
       bytes: bodyBytes,
     });
     const payload = JSON.parse(rawBody);
-    const userId = await requireWritableStoreSyncUserId(params.key, req);
     const expectedUpdatedAt = req.headers.get("x-expected-updated-at") || "";
     const expectedChecksum = req.headers.get("x-expected-checksum") || "";
     const expectedMissing = req.headers.get("x-expected-missing") === "1";
@@ -177,8 +194,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
       error instanceof AuthError
         ? error.status
         : isPostgresTemporarilyUnavailableError(error)
-        ? 503
-        : 500;
+          ? 503
+          : 500;
     return NextResponse.json(
       {
         ok: false,
@@ -208,8 +225,8 @@ export async function DELETE(_: NextRequest, { params }: Params) {
       error instanceof AuthError
         ? error.status
         : isPostgresTemporarilyUnavailableError(error)
-        ? 503
-        : 500;
+          ? 503
+          : 500;
     return NextResponse.json(
       {
         ok: false,

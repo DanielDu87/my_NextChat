@@ -4,7 +4,7 @@
 import { useCallback, useRef } from "react";
 import clsx from "clsx";
 import { showModal, showTopNotice } from "../components/ui-lib";
-import chatStyles from "../components/chat.module.scss";
+import previewStyles from "../components/file-preview.module.scss";
 import { ChatMessageAttachedFile } from "../store/chat";
 import {
   FilePreviewContent,
@@ -53,14 +53,14 @@ export function useFilePreview() {
       hideHeader: true,
       hideCloseButton: true,
       defaultMax: false,
-      className: clsx(chatStyles["file-preview-modal"], {
-        [chatStyles["file-preview-modal-office"]]:
+      className: clsx(previewStyles["file-preview-modal"], {
+        [previewStyles["file-preview-modal-office"]]:
           previewFileKind === "spreadsheet",
-        [chatStyles["file-preview-modal-document"]]:
+        [previewStyles["file-preview-modal-document"]]:
           previewFileKind === "document" && isDocxPreviewFile(file),
       }),
-      contentClassName: clsx(chatStyles["file-preview-modal-content"], {
-        [chatStyles["file-preview-modal-content-office"]]:
+      contentClassName: clsx(previewStyles["file-preview-modal-content"], {
+        [previewStyles["file-preview-modal-content-office"]]:
           previewFileKind === "spreadsheet" ||
           (previewFileKind === "document" && isDocxPreviewFile(file)),
       }),

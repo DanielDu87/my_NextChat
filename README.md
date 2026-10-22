@@ -63,11 +63,13 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 模型获取、缓存、模型管理器、聊天模型选择器和绘图模型管理器都不按名称、类别、能力或端点过滤模型；模型管理器的浏览列表展示当前供应商完整获取结果，“已添加”、聊天选择器和绘图选择器展示用户自行添加的模型。系统不再维护 Image、Video、Web、Thinking 或普通聊天模型分类，也不再额外拉取 AihubMix 分类元数据。自动故障转移使用用户已添加的全部可用模型，只保留候选排序、供应商切换和失败重试。请求真正发出时仍会根据用户已选模型选择对应 API 和参数，这属于请求路由，不用于隐藏模型。旧 GPT/DeepSeek/豆包系列“自动模式”及其开关、配置和同步字段已移除，失败重试无需设置且始终启用。
 - 全局“参数设置”固定展示采样、输出、上下文窗口、停止序列、生成数量、工具调用策略、安全等级、提示缓存、联网、推理、结构化输出和媒体解析等完整参数；除模型能力元数据和聊天 UI 固定值外，所有参数均可编辑并保存，即使当前模型暂不支持。默认采样值为 `temperature=0.4`、`top_p=0.9`、`top_k=0`（自动且不发送）。绘图区域与 Draw 页面共用 `draw-model-params` 字段、选项、默认值和能力矩阵，并通过全局 `generationParams` 双向同步实际保存值。有限枚举参数统一使用项目按钮式 listbox（`nextchat-select-trigger nextchat-control-surface`），不再显示原生下拉样式。参数修改失焦即排队保存；确认时会先把脱敏配置镜像和待同步标记写入浏览器本地存储，立即关闭弹窗并在后台同步，刷新后的自动同步会继续执行未完成任务。请求层按 OpenAI、Anthropic、Gemini、DeepSeek、GLM、MiniMax、Qwen/Kimi 和 xAI 等模型系列自动过滤、改名或映射参数，切换模型不会清空共享数据库中已保存的全局值；Claude 的显式缓存开关会发送 `cache_control`，其他标记为自动缓存的供应商不伪造通用缓存参数。
 - 参数设置通过确认按钮、右上角关闭按钮或点击遮罩退出时，都先启动具备本地恢复标记的 Config 后台同步，再立即关闭弹窗；弹窗卸载不会等待或中止网络同步，刷新后仍会补跑未完成任务。
-- 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
+- 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。该代理要求登录，只接受 http/https 地址并拒绝链路本地段（`169.254.0.0/16` 等云元数据地址）；仅当 `x-base-url` 主机名精确等于 `api.openai.com` 时才附带服务端 `OPENAI_API_KEY`。localhost / 内网地址仍可用于本地模型和 Code Interpreter。
+- `/api/[provider]/...` 模型代理、`/api/tencent`、`/api/model-probe` 同样要求登录：访问码检查已停用，未登录请求会被 401 拒绝，避免匿名使用服务端系统 Key。
 - 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
 - 内置「供应商管理」页面（`/api_config`）：先从浏览器非敏感缓存立即显示余额，再在后台从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置并校准缓存/UI，页面首开不自动请求上游余额；仅在手动单项更新或批量更新时，由服务端使用余额专用 Key（未填写时回退到对话 API Key）、查询 URL 和 New-API-User 配置发起请求。余额专用 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；新备份统一写入单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
+- `xlsx` 使用仓库内置的 SheetJS 官方 tarball `vendor/xlsx-0.20.3.tgz`（npm 上的 0.18.5 存在 CVE-2023-30533 / CVE-2024-22363，SheetJS 新版本只在其 CDN 发布）。
 
 ### 数据与同步
 
@@ -79,7 +81,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 ### 访问控制与部署
 
-- 支持站点访问密码和用户认证 session。
+- 支持用户认证 session；模型代理、通用代理、MCP Server Actions 等服务端能力均要求登录后使用。
 - 支持 Docker 开发、Docker 生产、宝塔 DockerSite 部署。
 - 当前线上默认以宝塔 DockerSite 为权威部署方式。
 - 支持反向代理、SSL、宝塔 Compose 面板显示和 DockerSite 注册脚本。
@@ -132,6 +134,7 @@ app/
 
 - `app/components/chat.tsx`
 - `app/components/chat.module.scss`
+- `app/components/file-preview.tsx` / `file-preview.module.scss`（附件预览弹窗与样式）
 - `app/store/chat.ts`
 - `app/store/chat-session.ts`
 - `app/utils/chat.ts`
@@ -188,7 +191,7 @@ app/
 - `provider_model_key_routes`：按供应商与 API Key 指纹保存最近成功的模型列表接口。
 - `provider_balance_configs`：供应商余额快照、查询时间戳、管理 API Key 密文、成功路径、自定义 URL 与 New-API-User 配置。
 - `sync_secrets`：同步敏感 payload 密文。
-- `site_access_settings`：站点访问密码哈希。
+- `site_access_settings`：遗留表（原站点访问密码哈希），运行时已不再使用。
 - `user_draw_stores`：绘画任务历史快照。
 - `user_draw_images`：绘画生成图片原图与缩略图（bytea，按 md5 去重）。
 - `cache_file_blobs` / `user_cache_files`：上传文件二进制去重与用户文件记录。

@@ -1,7 +1,7 @@
 @mixin container {
   background-color: var(--white);
   border: var(--border-in-light);
-  border-radius: 20px;
+  border-radius: var(--radius-4xl);
   box-shadow: var(--shadow);
   color: var(--black);
   background-color: var(--white);
@@ -93,10 +93,10 @@
     border-radius: 0;
   }
 
-  // 加载状态容器使用 100vh 与 fullscreen LoadingView 高度保持一致
-  // 避免移动端 100% 和 100vh 因地址栏差异导致加载图标向上偏移
+  // 加载状态容器使用 100dvh 与 fullscreen LoadingView 高度保持一致
+  // 避免移动端 100% 与视口高度因地址栏差异导致加载图标向上偏移
   .container-loading {
-    height: 100vh;
+    height: 100dvh;
   }
 
   .sidebar {
@@ -277,7 +277,7 @@
   font-size: 14px;
   font-weight: 400;
   opacity: 1;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 .chat-list-filter-input:not(:placeholder-shown)::placeholder {
@@ -344,7 +344,7 @@
 .chat-list-load-more-dots i {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--primary) 78%, white);
   animation: chat-list-load-more-bounce 1s ease-in-out infinite;
 }
@@ -393,12 +393,12 @@
 .chat-item {
   padding: 10px 14px;
   background-color: var(--white);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   margin-bottom: 10px;
   box-shadow: var(--card-shadow);
   transition:
-    background-color 0.3s ease,
-    padding-left 0.25s ease;
+    background-color var(--duration-slow) ease,
+    padding-left var(--duration-slow) ease;
   cursor: pointer;
   user-select: none;
   border: 2px solid transparent;
@@ -478,14 +478,14 @@
   background-color: color-mix(in srgb, var(--primary) 18%, transparent);
   color: inherit;
   padding: 0 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .chat-item-delete {
   position: absolute;
   top: 6px;
   right: 8px;
-  transition: opacity ease 0.3s;
+  transition: opacity ease var(--duration-slow);
   opacity: 0;
   cursor: pointer;
 }
@@ -507,8 +507,8 @@
   color: var(--primary);
   background: var(--white);
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease;
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease;
   animation: checkSlideIn 0.25s ease;
 
   svg {
@@ -600,7 +600,7 @@
     flex: 1;
     height: 38px;
     border: 1px solid rgba(148, 163, 184, 0.18);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     background: var(--white);
     color: var(--black);
     display: inline-flex;
@@ -614,10 +614,10 @@
     white-space: nowrap;
     cursor: pointer;
     transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease,
-      box-shadow 0.2s ease,
-      transform 0.2s ease;
+      background-color var(--duration-base) ease,
+      border-color var(--duration-base) ease,
+      box-shadow var(--duration-base) ease,
+      transform var(--duration-base) ease;
     padding: 0 12px;
 
     svg {
@@ -671,11 +671,11 @@
   min-width: max-content;
   padding: 4px;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    background-color var(--duration-base) ease;
 }
 
 .sidebar-tail > .sidebar-actions:first-child {
@@ -728,7 +728,7 @@
   transform: translateX(-50%);
   background: var(--white);
   border: var(--border-in-light);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
   padding: 8px;
   min-width: 100px;

@@ -17,6 +17,7 @@ import { handle as chatglmHandler } from "../../glm";
 import { handle as proxyHandler } from "../../proxy";
 import { handle as ai302Handler } from "../../302ai";
 import { handle as toapisHandler } from "../../toapis";
+import { requireApiSession } from "../../auth";
 
 async function handle(
   req: NextRequest,
@@ -24,6 +25,10 @@ async function handle(
 ) {
   const apiPath = `/api/${params.provider}`;
   console.log(`[${params.provider} Route] params `, params);
+  const unauthorized = await requireApiSession(req);
+  if (unauthorized) {
+    return unauthorized;
+  }
   switch (apiPath) {
     case ApiPath.Azure:
       return azureHandler(req, { params });

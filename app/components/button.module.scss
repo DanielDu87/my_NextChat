@@ -1,12 +1,12 @@
 .icon-button {
   background-color: var(--white);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 10px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--duration-slow) ease;
   overflow: hidden;
   user-select: none;
   outline: none;
@@ -88,7 +88,7 @@
   }
 }
 
-@media only screen and (max-width: 600px) {
+@media only screen and (max-width: 650px) {
   .icon-button {
     padding: 0 !important;
     width: 36px !important;
@@ -132,7 +132,7 @@
       min-height: 40px !important;
       padding: 0 12px !important;
       justify-content: center !important;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       box-sizing: border-box;
     }
 

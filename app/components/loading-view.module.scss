@@ -26,126 +26,126 @@
 }
 
 .loading-view-fill {
-	flex: 1 1 auto;
-	align-self: stretch;
-	min-height: 100%;
-	height: 100%;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 100%;
+  height: 100%;
 }
 
 .loading-view-fullscreen {
-	width: 100vw;
-	min-height: 100vh;
-	height: 100vh;
+  width: 100vw;
+  min-height: 100dvh;
+  height: 100dvh;
 }
 
 .loading-view-splash {
-	--loading-icon-size: 50px;
-	--loading-dots-width: 40px;
-	--loading-gap: 12px;
+  --loading-icon-size: 50px;
+  --loading-dots-width: 40px;
+  --loading-gap: 12px;
 }
 
 .loading-view-stack {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	row-gap: var(--loading-gap);
-	width: fit-content;
-	max-width: 100%;
-	margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  row-gap: var(--loading-gap);
+  width: fit-content;
+  max-width: 100%;
+  margin: auto;
   transition: none !important;
 }
 
 .loading-view-row {
-	width: fit-content;
-	max-width: 100%;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	margin: 0 auto;
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
 }
 
 .loading-view-icon-slot,
 .loading-view-dots-slot {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: 0 0 auto;
-	margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin: 0 auto;
 }
 
 .loading-view-icon-slot {
-	width: var(--loading-icon-size);
-	height: var(--loading-icon-size);
+  width: var(--loading-icon-size);
+  height: var(--loading-icon-size);
 }
 
 .loading-view-dots-slot {
-	width: var(--loading-dots-width);
-	min-height: 30px;
+  width: var(--loading-dots-width);
+  min-height: 30px;
 }
 
 .loading-view-logo {
-	width: var(--loading-icon-size);
-	height: var(--loading-icon-size);
-	display: block;
-	flex: 0 0 auto;
-	margin: 0;
-	transform: none !important;
-	filter: none;
+  width: var(--loading-icon-size);
+  height: var(--loading-icon-size);
+  display: block;
+  flex: 0 0 auto;
+  margin: 0;
+  transform: none !important;
+  filter: none;
 }
 
 .loading-view-dots {
-	width: var(--loading-dots-width);
-	height: auto;
-	display: block;
-	flex: 0 0 auto;
-	margin: 0;
-	transform: none !important;
-	filter: none;
+  width: var(--loading-dots-width);
+  height: auto;
+  display: block;
+  flex: 0 0 auto;
+  margin: 0;
+  transform: none !important;
+  filter: none;
 }
 
 @media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
-	.loading-view {
-		--loading-icon-size: 58px;
-		--loading-dots-width: 48px;
-		--loading-gap: 14px;
-		animation: none !important;
-		transition: none !important;
-	}
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  .loading-view {
+    --loading-icon-size: 58px;
+    --loading-dots-width: 48px;
+    --loading-gap: 14px;
+    animation: none !important;
+    transition: none !important;
+  }
 
-	.loading-view-fullscreen {
-		position: fixed;
-		inset: 0;
-		width: 100vw;
-		min-height: 100vh;
-		height: 100vh;
-		min-height: 100dvh;
-		height: 100dvh;
-		padding-top: env(safe-area-inset-top);
-		padding-bottom: env(safe-area-inset-bottom);
-		box-sizing: border-box;
-		z-index: 999;
-	}
+  .loading-view-fullscreen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    min-height: 100dvh;
+    height: 100dvh;
+    min-height: 100dvh;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
+    z-index: 999;
+  }
 
-	.loading-view-fill {
-		min-height: 100%;
-		height: 100%;
-	}
+  .loading-view-fill {
+    min-height: 100%;
+    height: 100%;
+  }
 
-	.loading-view-stack,
-	.loading-view-row,
-	.loading-view-icon-slot,
-	.loading-view-dots-slot,
-	.loading-view-logo,
-	.loading-view-dots {
-		animation: none !important;
-		transition: none !important;
-	}
+  .loading-view-stack,
+  .loading-view-row,
+  .loading-view-icon-slot,
+  .loading-view-dots-slot,
+  .loading-view-logo,
+  .loading-view-dots {
+    animation: none !important;
+    transition: none !important;
+  }
 
-	.loading-view-splash {
-		--loading-icon-size: 46px;
-		--loading-dots-width: 36px;
-		--loading-gap: 10px;
-	}
+  .loading-view-splash {
+    --loading-icon-size: 46px;
+    --loading-dots-width: 36px;
+    --loading-gap: 10px;
+  }
 }

@@ -63,3 +63,6 @@ app/mcp/mcp_config.json
 .claude/
 .gemini/
 .system_generated/
+.zcode/
+.dbg/
+.handoff-backups/

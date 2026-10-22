@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Logo from "../icons/logo.svg";
 import EyeIcon from "../icons/eye.svg";
@@ -12,6 +12,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(props.initialError || "");
 
@@ -20,6 +21,10 @@ export default function SitePasswordGate(props: { initialError?: string }) {
       window.dispatchEvent(new Event("nextchat:theme-ready"));
     });
   }, []);
+
+  const handlePasswordKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    setCapsLockOn(event.getModifierState?.("CapsLock") === true);
+  };
 
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -65,40 +70,68 @@ export default function SitePasswordGate(props: { initialError?: string }) {
   };
 
   return (
-    <div className={styles.page}>
-      <form className={styles.card} onSubmit={handleSubmit}>
-        <div className={`${styles.logo} no-dark`}>
-          <Logo />
-        </div>
-        <div className={styles.title}>账号登录</div>
-        <div className={styles.desc}>请使用管理员创建的账号进入系统。</div>
-        <div className={styles.usernameInput}>
-          <div className={styles.inputBox}>
-            <input
-              className="nextchat-input-control"
-              aria-label="用户名"
-              value={username}
-              placeholder="请输入用户名"
-              autoFocus
-              required
-              onChange={(e) => {
-                setUsername(e.currentTarget.value);
-                if (error) {
-                  setError("");
-                }
-              }}
-            />
+    <main className={styles.page}>
+      <form
+        className={styles.card}
+        onSubmit={handleSubmit}
+        aria-labelledby="site-login-title"
+        noValidate
+      >
+        <header className={styles.header}>
+          <div className={`${styles.logo} no-dark`} aria-hidden="true">
+            <Logo />
           </div>
+          <h1 id="site-login-title" className={styles.title}>
+            登录 NextChat
+          </h1>
+          <p className={styles.desc}>使用管理员为你创建的账号登录</p>
+        </header>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="site-login-username">
+            用户名
+          </label>
+          <input
+            id="site-login-username"
+            name="username"
+            className={`nextchat-input-control ${styles.input}`}
+            value={username}
+            placeholder="请输入用户名"
+            autoComplete="username"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            autoFocus
+            required
+            aria-invalid={error === "请输入用户名" || undefined}
+            onChange={(e) => {
+              setUsername(e.currentTarget.value);
+              if (error) {
+                setError("");
+              }
+            }}
+          />
         </div>
-        <div className={styles.passwordInput}>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="site-login-password">
+            密码
+          </label>
           <div className={styles.passwordBox}>
             <input
-              className="nextchat-input-control"
-              aria-label="登录密码"
+              id="site-login-password"
+              name="password"
+              className={`nextchat-input-control ${styles.input} ${styles.passwordInput}`}
               value={password}
               placeholder="请输入密码"
               type={passwordVisible ? "text" : "password"}
+              autoComplete="current-password"
               required
+              aria-invalid={error === "请输入密码" || undefined}
+              aria-describedby={capsLockOn ? "site-login-caps" : undefined}
+              onKeyDown={handlePasswordKey}
+              onKeyUp={handlePasswordKey}
+              onBlur={() => setCapsLockOn(false)}
               onChange={(e) => {
                 setPassword(e.currentTarget.value);
                 if (error) {
@@ -109,34 +142,39 @@ export default function SitePasswordGate(props: { initialError?: string }) {
             <button
               type="button"
               className={styles.passwordToggle}
-              aria-label="登录密码"
+              aria-label={passwordVisible ? "隐藏密码" : "显示密码"}
+              aria-pressed={passwordVisible}
+              aria-controls="site-login-password"
               onClick={() => setPasswordVisible((visible) => !visible)}
             >
               {passwordVisible ? <EyeIcon /> : <EyeOffIcon />}
             </button>
           </div>
+          {capsLockOn && (
+            <p id="site-login-caps" className={styles.hint}>
+              大写锁定已开启
+            </p>
+          )}
         </div>
-        <div className={styles.actions}>
-          <button
-            type="submit"
-            className="nextchat-primary-button"
-            disabled={submitting}
-          >
-            <span className={styles.actionText}>
-              {submitting ? "登录中..." : "进入系统"}
-            </span>
-          </button>
-        </div>
-        <div className={styles.errorWrap}>
-          <div
-            className={styles.error}
-            data-visible={error ? "true" : "false"}
-            aria-live="polite"
-          >
-            {error || " "}
+
+        {error && (
+          <div className={styles.error} role="alert">
+            {error}
           </div>
-        </div>
+        )}
+
+        <button
+          type="submit"
+          className={`nextchat-primary-button ${styles.submit}`}
+          disabled={submitting}
+          aria-busy={submitting}
+        >
+          {submitting && <span className={styles.spinner} aria-hidden="true" />}
+          <span>{submitting ? "登录中…" : "登录"}</span>
+        </button>
+
+        <p className={styles.footnote}>忘记账号或密码，请联系管理员重置</p>
       </form>
-    </div>
+    </main>
   );
 }

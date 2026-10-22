@@ -84,6 +84,26 @@ export function isPostgresTemporarilyUnavailableError(error: unknown) {
   return isRetryablePostgresError(error);
 }
 
+// 连接数打满、数据库启动中、行级并发冲突都不是连接池本身损坏：重建连接池只会断开
+// 其他请求正在使用的连接、放大故障，这类错误只退避重试。
+export function shouldResetPoolForError(error: unknown) {
+  const code = getPostgresErrorCode(error);
+  if (["53300", "57P03"].includes(code)) return false;
+  const message =
+    error instanceof Error ? error.message : String(error ?? "unknown_error");
+  if (
+    [
+      "too many clients already",
+      "tuple concurrently updated",
+      "the database system is starting up",
+      "database system is not accepting connections",
+    ].some((pattern) => message.includes(pattern))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export async function withRetryablePostgresOperation<T>(
   operation: () => Promise<T>,
 ) {
@@ -100,6 +120,7 @@ export async function withRetryablePostgresOperation<T>(
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const poolBeforeAttempt = globalThis.__nextchatPostgresPool;
     try {
       return await operation();
     } catch (error) {
@@ -124,7 +145,14 @@ export async function withRetryablePostgresOperation<T>(
         error instanceof Error ? error.message : String(error),
       );
 
-      await closePostgresPool().catch(() => {});
+      // 只关闭本次尝试所用的连接池：若其他并发请求已重建新池，不能再把新池关掉。
+      if (
+        shouldResetPoolForError(error) &&
+        poolBeforeAttempt &&
+        globalThis.__nextchatPostgresPool === poolBeforeAttempt
+      ) {
+        await closePostgresPool().catch(() => {});
+      }
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

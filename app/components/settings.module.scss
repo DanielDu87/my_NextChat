@@ -22,14 +22,17 @@
    深色模式覆盖仍保留，因为需要应用专属渐变背景与阴影。*/
 }
 
-:global(.dark) .settings,
 :global(body.dark) .settings {
   :global(input[type="text"]),
   :global(input[type="password"]),
   :global(input[type="number"]),
   :global(textarea),
   :global(.password-input-container .password-input) {
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+    background: linear-gradient(
+      180deg,
+      rgba(30, 41, 59, 0.96) 0%,
+      rgba(15, 23, 42, 0.96) 100%
+    );
     color: #e5edf7;
     border: 1px solid rgba(71, 85, 105, 0.92);
     box-shadow:
@@ -59,19 +62,17 @@
   :global(input[type="number"]:focus),
   :global(textarea:focus),
   :global(.password-input-container .password-input:focus) {
-    background: linear-gradient(180deg, rgba(37, 99, 235, 0.18) 0%, rgba(15, 23, 42, 0.96) 100%);
+    background: linear-gradient(
+      180deg,
+      rgba(37, 99, 235, 0.18) 0%,
+      rgba(15, 23, 42, 0.96) 100%
+    );
     color: #f8fbff;
     border-color: var(--primary);
     box-shadow:
       var(--input-control-focus-shadow),
       0 16px 32px rgba(2, 6, 23, 0.36);
   }
-}
-
-.avatar {
-  cursor: pointer;
-  position: relative;
-  z-index: 1;
 }
 
 .edit-prompt-modal {
@@ -100,7 +101,7 @@
 
   .user-prompt-list {
     border: var(--border-in-light);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
 
     .user-prompt-item {
       display: flex;
@@ -140,12 +141,12 @@
 
 .subtitle-button {
   button {
-    overflow:visible ;
+    overflow: visible;
   }
 }
 
 .settings-mobile-only {
-  min-height: calc(100vh - var(--window-header-height));
+  min-height: calc(var(--full-height) - var(--window-header-height, 64px));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -157,7 +158,7 @@
   width: min(100%, 360px);
   padding: 28px 22px;
   border: var(--border-in-light);
-  border-radius: 18px;
+  border-radius: var(--radius-4xl);
   background: var(--white);
   box-shadow: var(--card-shadow);
   text-align: center;
@@ -178,7 +179,7 @@
 }
 
 @media screen and (max-width: 650px),
-	screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .settings-header :global(.window-actions) {
     align-self: stretch;
     display: flex;

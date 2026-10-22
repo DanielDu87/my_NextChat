@@ -19,8 +19,11 @@
   cursor: not-allowed !important;
 }
 
-
-.page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+.page
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea
+  ) {
   cursor: text !important;
 }
 
@@ -51,7 +54,7 @@
 
 .content > :global([class*="list"]) > :global([class*="list-item"]).hoverCard {
   border: var(--border-in-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 
   :global(.nextchat-list-header) {
     align-items: flex-start !important;
@@ -101,7 +104,7 @@
   justify-content: center;
   gap: 6px;
   min-height: 38px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -127,18 +130,19 @@
   box-sizing: border-box;
   overflow: hidden;
   border: var(--border-in-light);
-  border-radius: 8px;
-  background: radial-gradient(
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(
       220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 12%, transparent),
+      var(--hover-glow-color, transparent),
       transparent 62%
     ),
     var(--white);
   background-repeat: no-repeat;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
 .hoverCard:hover,
@@ -158,9 +162,10 @@
 }
 
 .session.hoverCard {
-  background: radial-gradient(
+  background:
+    radial-gradient(
       220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 16%, transparent),
+      var(--hover-glow-color, transparent),
       transparent 58%
     ),
     var(--gray);
@@ -195,7 +200,7 @@
   margin-top: 12px;
   padding: 4px 12px;
   border: 1.5px solid color-mix(in srgb, var(--primary) 36%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: #4b5563;
   background: color-mix(in srgb, var(--primary) 5%, transparent);
   font-size: 19px;
@@ -249,7 +254,7 @@
   min-width: 52px;
   padding: 4px 10px;
   border: 1.5px solid color-mix(in srgb, var(--primary) 44%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: color-mix(in srgb, var(--primary) 78%, #374151);
   background: color-mix(in srgb, var(--primary) 8%, transparent);
   font-size: 18px;
@@ -280,7 +285,7 @@
 .userSummaryMeta {
   overflow: hidden;
   margin-top: 2px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: normal;
   text-overflow: ellipsis;
@@ -301,7 +306,7 @@
 
 .userSummaryCount span {
   margin-left: 4px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: normal;
 }
@@ -347,7 +352,7 @@
 
 .historySubTitle {
   margin-top: 4px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: normal;
   line-height: 1.5;
@@ -390,7 +395,7 @@
 .searchBar input::placeholder {
   color: var(--sidebar-search-placeholder);
   opacity: 1;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
 .searchBar input:focus::placeholder {
@@ -450,8 +455,8 @@
   min-height: 20px;
   padding: 0 8px;
   border: var(--border-in-light);
-  border-radius: 999px;
-  color: var(--black-2);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: normal;
   background: color-mix(in srgb, var(--white) 88%, var(--gray));
@@ -460,7 +465,7 @@
 .backupMeta,
 .empty {
   margin-top: 5px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -500,9 +505,10 @@
 }
 
 .session.hoverCard {
-  background: radial-gradient(
+  background:
+    radial-gradient(
       220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 16%, transparent),
+      var(--hover-glow-color, transparent),
       transparent 58%
     ),
     var(--gray);
@@ -536,11 +542,11 @@
 
 .message {
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .messageRole {
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -570,7 +576,7 @@
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 650px) {
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;
@@ -723,7 +729,7 @@
   }
 
   /* ==================== 第三个 div 区域（对话备份历史）移动端优化 ==================== */
-  
+
   /* 备份历史标题区域优化 */
   .historyHeader {
     align-items: flex-start;
@@ -762,7 +768,7 @@
     padding: 0 12px !important;
     font-size: 14px !important;
     font-weight: 600;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
   .createBackupButton :global([class*="icon-button-text"]) {
@@ -813,7 +819,7 @@
     line-height: 20px;
     font-size: 14px;
     padding: 0 12px;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
   /* 备份列表优化 */
@@ -824,7 +830,7 @@
   /* 单个备份项优化 */
   .backup {
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
   }
 
   .backupTop {
@@ -857,7 +863,7 @@
     font-size: 11px;
     padding: 2px 8px;
     min-height: 20px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
   }
 
   /* 备份操作按钮组优化 */
@@ -870,7 +876,7 @@
     height: 40px !important;
     padding: 0 10px !important;
     font-size: 13px !important;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
   .backupTop :global(button[class*="icon-button"] [class*="icon-button-text"]) {
@@ -905,7 +911,7 @@
   /* 单个会话项优化 */
   .session {
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
   }
 
   .sessionHeader {
@@ -937,7 +943,7 @@
     height: 40px !important;
     padding: 0 10px !important;
     font-size: 13px !important;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
   .sessionHeader
@@ -966,7 +972,7 @@
 
   .message {
     padding: 10px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
   }
 
   .messageRole {

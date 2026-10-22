@@ -1689,7 +1689,9 @@ const MCPAction = () => {
 };
 
 export function SessionConfigModel(props: { onClose: () => void }) {
-  const chatStore = useChatStore();
+  const updateTargetSession = useChatStore(
+    (state) => state.updateTargetSession,
+  );
   const currentSessionSnapshot = useChatStore((state) =>
     state.currentSession(),
   );
@@ -1712,7 +1714,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
             text={Locale.Chat.Config.Reset}
             onClick={async () => {
               if (await showConfirm(Locale.Memory.ResetConfirm)) {
-                chatStore.updateTargetSession(
+                updateTargetSession(
                   session,
                   (session) => (session.memoryPrompt = ""),
                 );
@@ -1726,10 +1728,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
           updateMask={(updater) => {
             const mask = { ...session.mask };
             updater(mask);
-            chatStore.updateTargetSession(
-              session,
-              (session) => (session.mask = mask),
-            );
+            updateTargetSession(session, (session) => (session.mask = mask));
           }}
           shouldSyncFromGlobal
           readonlyModel
@@ -2049,7 +2048,9 @@ function PromptPickerModal(props: {
 }
 
 function ClearContextDivider() {
-  const chatStore = useChatStore();
+  const updateTargetSession = useChatStore(
+    (state) => state.updateTargetSession,
+  );
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
@@ -2060,7 +2061,7 @@ function ClearContextDivider() {
     <div
       className={styles["clear-context"]}
       onClick={() =>
-        chatStore.updateTargetSession(
+        updateTargetSession(
           session,
           (session) => (session.clearContextIndex = undefined),
         )
@@ -2320,7 +2321,9 @@ export function ChatActions(props: {
   uploading: boolean;
 }) {
   const config = useAppConfig();
-  const chatStore = useChatStore();
+  const updateTargetSession = useChatStore(
+    (state) => state.updateTargetSession,
+  );
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
@@ -2607,7 +2610,7 @@ export function ChatActions(props: {
                     : currentSize === "1280x720"
                       ? "720x1280"
                       : "720x1280";
-                chatStore.updateTargetSession(session, (session) => {
+                updateTargetSession(session, (session) => {
                   session.mask.modelConfig.size = nextSize as any;
                 });
                 showTopNoticeCard(
@@ -2647,7 +2650,7 @@ export function ChatActions(props: {
           onSelection={(s) => {
             if (s.length === 0) return;
             const size = s[0];
-            chatStore.updateTargetSession(session, (session) => {
+            updateTargetSession(session, (session) => {
               session.mask.modelConfig.size = size;
             });
             showTopNoticeCard(size);
@@ -2668,7 +2671,7 @@ export function ChatActions(props: {
           onSelection={(q) => {
             if (q.length === 0) return;
             const quality = q[0];
-            chatStore.updateTargetSession(session, (session) => {
+            updateTargetSession(session, (session) => {
               session.mask.modelConfig.quality = quality;
             });
             showTopNoticeCard(quality);
@@ -2689,7 +2692,7 @@ export function ChatActions(props: {
           onSelection={(s) => {
             if (s.length === 0) return;
             const style = s[0];
-            chatStore.updateTargetSession(session, (session) => {
+            updateTargetSession(session, (session) => {
               session.mask.modelConfig.style = style;
             });
             showTopNoticeCard(style);
@@ -2710,7 +2713,7 @@ export function ChatActions(props: {
           onSelection={(s) => {
             if (s.length === 0) return;
             const seconds = s[0];
-            chatStore.updateTargetSession(session, (session) => {
+            updateTargetSession(session, (session) => {
               session.mask.modelConfig.seconds = seconds;
             });
             showTopNoticeCard(`${seconds} 秒`);
@@ -2722,7 +2725,9 @@ export function ChatActions(props: {
 }
 
 export function EditMessageModal(props: { onClose: () => void }) {
-  const chatStore = useChatStore();
+  const updateTargetSession = useChatStore(
+    (state) => state.updateTargetSession,
+  );
   const navigate = useNavigate();
   const hasLoggedParameterExitRef = useRef(false);
   const enteredParameterSessionRef = useRef("");
@@ -2818,10 +2823,7 @@ export function EditMessageModal(props: { onClose: () => void }) {
           updateMask={(updater) => {
             const mask = { ...session.mask };
             updater(mask);
-            chatStore.updateTargetSession(
-              session,
-              (session) => (session.mask = mask),
-            );
+            updateTargetSession(session, (session) => (session.mask = mask));
           }}
           shouldSyncFromGlobal
           readonlyModel
@@ -10259,9 +10261,7 @@ function ChatContent() {
                                                       type="button"
                                                       className={cardClassName}
                                                       onClick={() =>
-                                                        openFilePreview(
-                                                          file,
-                                                        )
+                                                        openFilePreview(file)
                                                       }
                                                       title={`${file.name}\n${
                                                         file.typeLabel
@@ -10670,9 +10670,7 @@ function ChatContent() {
                                 } · ${formatAttachmentSize(file.size)}`}
                                 role="button"
                                 tabIndex={0}
-                                onClick={() =>
-                                  openFilePreview(file)
-                                }
+                                onClick={() => openFilePreview(file)}
                                 onKeyDown={(event) => {
                                   if (
                                     event.key === "Enter" ||

@@ -1,8 +1,8 @@
 // 文件预览 Modal 与所有配套 helper。
 //
 // 单独抽出是为了让 markdown 链接卡片、聊天附件都能复用同一个 FilePreviewContent。
-// SCSS 仍由 chat.module.scss 提供（CSS Modules 类名哈希与 importer 无关，
-// 因此本文件可以直接 import，与 mask.tsx 复用 chat.module.scss 同理）。
+// 预览样式在 file-preview.module.scss；附件卡片 attach-file-* 与聊天输入区共用，
+// 仍由 chat.module.scss 提供。
 import React, {
   useCallback,
   useEffect,
@@ -11,7 +11,8 @@ import React, {
   useState,
 } from "react";
 import clsx from "clsx";
-import previewStyles from "./chat.module.scss";
+import chatStyles from "./chat.module.scss";
+import previewStyles from "./file-preview.module.scss";
 import CloseIcon from "../icons/close.svg";
 import DownloadIcon from "../icons/download.svg";
 import { ChatMessageAttachedFile } from "../store/chat";
@@ -29,7 +30,11 @@ const FILE_PREVIEW_CACHE_MAX_ENTRIES = 24;
 const PREVIEW_DOWNLOAD_CHUNK_SIZE = 256 * 1024;
 
 export type PreviewFileKind =
-  "pdf" | "document" | "spreadsheet" | "text" | "generic";
+  | "pdf"
+  | "document"
+  | "spreadsheet"
+  | "text"
+  | "generic";
 
 const filePreviewObjectUrlCache = new Map<
   string,
@@ -277,8 +282,8 @@ export function AttachmentFileGlyph({ typeKind }: { typeKind: string }) {
   return (
     <span
       className={clsx(
-        previewStyles["attach-file-glyph"],
-        typeKind === "pdf" && previewStyles["attach-file-pdf-glyph"],
+        chatStyles["attach-file-glyph"],
+        typeKind === "pdf" && chatStyles["attach-file-pdf-glyph"],
       )}
     ></span>
   );
@@ -305,8 +310,8 @@ function FilePreviewState(props: {
     <div className={previewStyles["file-preview-state"]}>
       <div className={previewStyles["file-preview-state-card"]}>
         <div className={previewStyles["file-preview-state-icon"]}>
-          <div className={previewStyles[`attach-file-${props.file.typeKind}`]}>
-            <div className={previewStyles["attach-file-icon"]}>
+          <div className={chatStyles[`attach-file-${props.file.typeKind}`]}>
+            <div className={chatStyles["attach-file-icon"]}>
               <AttachmentFileGlyph typeKind={props.file.typeKind} />
             </div>
           </div>
@@ -816,8 +821,8 @@ export function FilePreviewContent(props: {
 
   if (isImageAttachmentFile(file)) {
     const FileTypeIcon = () => (
-      <div className={previewStyles["attach-file-file"]}>
-        <div className={previewStyles["attach-file-icon"]}>
+      <div className={chatStyles["attach-file-file"]}>
+        <div className={chatStyles["attach-file-icon"]}>
           <AttachmentFileGlyph typeKind="file" />
         </div>
       </div>
@@ -888,7 +893,18 @@ export function FilePreviewContent(props: {
               target.style.display = "none";
               const parent = target.parentElement;
               if (parent) {
-                parent.innerHTML = `<object data="${previewUrl}" type="image/png" style="width:100%;height:100%;border:none;" title="${file.name || ""}"><iframe src="${previewUrl}" style="width:100%;height:100%;border:none;"></iframe></object>`;
+                // 用 DOM API 构建回退节点：文件名、URL 来自用户数据，拼接 HTML 会导致 XSS。
+                const fallbackStyle = "width:100%;height:100%;border:none;";
+                const objectEl = document.createElement("object");
+                objectEl.data = previewUrl;
+                objectEl.type = "image/png";
+                objectEl.title = file.name || "";
+                objectEl.setAttribute("style", fallbackStyle);
+                const iframeEl = document.createElement("iframe");
+                iframeEl.src = previewUrl;
+                iframeEl.setAttribute("style", fallbackStyle);
+                objectEl.appendChild(iframeEl);
+                parent.replaceChildren(objectEl);
               }
             }}
           />
@@ -899,8 +915,8 @@ export function FilePreviewContent(props: {
 
   if (fileKind === "generic") {
     const FileTypeIcon = () => (
-      <div className={previewStyles["attach-file-file"]}>
-        <div className={previewStyles["attach-file-icon"]}>
+      <div className={chatStyles["attach-file-file"]}>
+        <div className={chatStyles["attach-file-icon"]}>
           <AttachmentFileGlyph typeKind="file" />
         </div>
       </div>
@@ -966,8 +982,8 @@ export function FilePreviewContent(props: {
 
   if (fileKind === "pdf") {
     const FileTypeIcon = () => (
-      <div className={previewStyles["attach-file-pdf"]}>
-        <div className={previewStyles["attach-file-icon"]}>
+      <div className={chatStyles["attach-file-pdf"]}>
+        <div className={chatStyles["attach-file-icon"]}>
           <AttachmentFileGlyph typeKind="pdf" />
         </div>
       </div>
@@ -1225,8 +1241,8 @@ export function FilePreviewContent(props: {
   const typeKind = file.typeKind || "file";
 
   const FileTypeIcon = () => (
-    <div className={previewStyles[`attach-file-${typeKind}`]}>
-      <div className={previewStyles["attach-file-icon"]}>
+    <div className={chatStyles[`attach-file-${typeKind}`]}>
+      <div className={chatStyles["attach-file-icon"]}>
         <AttachmentFileGlyph typeKind={typeKind} />
       </div>
     </div>

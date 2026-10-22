@@ -1,11 +1,14 @@
-# syntax=docker.m.daocloud.io/docker/dockerfile:1
+# syntax=docker/dockerfile:1
 # =============================================================================
 # NextChat Dockerfile - 优化版
 # 支持本地开发热加载和服务器生产部署
 # =============================================================================
 
 # 固定 Node Alpine 版本，避免依赖安装受 Alpine 仓库内置 Node 小版本限制
-ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22.13.0-alpine3.20
+# 基础镜像保持 Docker Hub 官方名，不把加速域名写进默认值：加速由全局测速脚本选出的
+# mirror builder 或 daemon registry-mirrors 承担（coding-deploy.md 第 3 节第 10 条）；
+# 需要指定全限定名时经 --build-arg NODE_IMAGE=... 覆盖。
+ARG NODE_IMAGE=node:22.13.0-alpine3.20
 FROM ${NODE_IMAGE} AS base
 
 ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
@@ -139,7 +142,7 @@ RUN --mount=type=cache,target=/app/.next/cache \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22.13.0-alpine3.20
+ARG NODE_IMAGE=node:22.13.0-alpine3.20
 FROM ${NODE_IMAGE} AS runner
 
 ARG APK_MIRROR=https://mirrors.aliyun.com/alpine

@@ -134,6 +134,13 @@ const pendingSessionRefreshTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+// 流式输出每个动画帧都会更新会话；逐帧 JSON 序列化整段会话并写 IndexedDB 会阻塞主线程，
+// 因此流式期间节流持久化，流式结束（无 streaming 消息）后立即落盘。
+const STREAMING_SESSION_PERSIST_INTERVAL_MS = 1000;
+const pendingSessionPersistTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
 
 function readSessionStorageItem(key: string) {
   if (typeof window === "undefined") {
@@ -3928,8 +3935,9 @@ export const useChatStore = createPersistStore(
                     botMessage.tools,
                   );
                   botMessage.date = new Date().toISOString();
-                  botMessage.reasoning_details = (responseRes as any)
-                    ?.__reasoning_details;
+                  botMessage.reasoning_details = (
+                    responseRes as any
+                  )?.__reasoning_details;
                   const [promptTokens, completionTokens, systemTokens] =
                     await Promise.all([
                       countPromptTokens(sendMessages, candidate.model),
@@ -4631,6 +4639,33 @@ export const useChatStore = createPersistStore(
             sessionSummaries,
           };
         });
+        const sessionId = updatedSession.id;
+        const hasStreamingMessage = updatedSession.messages.some(
+          (message) => message.streaming,
+        );
+        if (hasStreamingMessage) {
+          if (!pendingSessionPersistTimers.has(sessionId)) {
+            pendingSessionPersistTimers.set(
+              sessionId,
+              setTimeout(() => {
+                pendingSessionPersistTimers.delete(sessionId);
+                // 落盘时按 id 读取最新会话；用户切换后旧会话已不在内存中，直接跳过。
+                const latestSession = get().sessions.find(
+                  (session) => session.id === sessionId,
+                );
+                if (latestSession) {
+                  void get().saveSessionToPersistedStorage(latestSession);
+                }
+              }, STREAMING_SESSION_PERSIST_INTERVAL_MS),
+            );
+          }
+          return;
+        }
+        const pendingPersistTimer = pendingSessionPersistTimers.get(sessionId);
+        if (pendingPersistTimer) {
+          clearTimeout(pendingPersistTimer);
+          pendingSessionPersistTimers.delete(sessionId);
+        }
         void get().saveSessionToPersistedStorage(updatedSession);
       },
       async clearAllData() {

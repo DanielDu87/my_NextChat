@@ -1,6 +1,6 @@
 .input-range {
   border: var(--border-in-light);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 5px 10px 5px 10px;
   font-size: 12px;
   display: flex;
@@ -26,7 +26,7 @@
     height: 6px;
     margin: 0;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--bar-color);
     cursor: pointer;
 
@@ -44,7 +44,9 @@
       border-radius: 50%;
       background: var(--primary);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-      transition: transform 0.16s ease, box-shadow 0.16s ease;
+      transition:
+        transform var(--duration-fast) ease,
+        box-shadow var(--duration-fast) ease;
     }
 
     &:not(:disabled)::-webkit-slider-thumb:hover {
@@ -55,7 +57,7 @@
     &::-moz-range-track {
       height: 6px;
       border: 0;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       background: var(--bar-color);
     }
 

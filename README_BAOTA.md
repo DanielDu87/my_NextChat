@@ -6,21 +6,21 @@
 
 ## 1. 当前固定环境
 
-| 项 | 当前值 |
-|---|---|
-| SSH alias | `ss` |
-| 服务器公网 IP | `42.193.15.117` |
-| 项目目录 | `/www/dk_project/my_NextChat` |
-| 域名 | `chat.dyxcloud.com` |
-| Docker 容器名 | `nextchat` |
-| 容器监听 | `127.0.0.1:3000 -> 3000`（**仅宿主机可访问**，不得暴露 0.0.0.0） |
-| 宝塔 DockerSite 站点名 | `chat.dyxcloud.com` |
-| 宝塔 Compose 显示名 | `my_nextchat` |
-| 宝塔 Compose 实际 project | `03b890c97bdecc48c2294402d8768906`，即 `md5(my_nextchat)` |
-| Nginx 反代目标 | `http://127.0.0.1:3000` |
-| 数据库 | 宿主机 PostgreSQL，配置在服务器 `/www/dk_project/my_NextChat/.env.baota` |
-| 数据库服务器 | 宝塔 PostgreSQL 16（监听 `127.0.0.1:5432` + `172.20.0.1:5432`） |
-| 默认管理员 | `user:admin`（`NEXTCHAT_DEFAULT_USER_ID` / `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`） |
+| 项                        | 当前值                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| SSH alias                 | `ss`                                                                            |
+| 服务器公网 IP             | `42.193.15.117`                                                                 |
+| 项目目录                  | `/www/dk_project/my_NextChat`                                                   |
+| 域名                      | `chat.dyxcloud.com`                                                             |
+| Docker 容器名             | `nextchat`                                                                      |
+| 容器监听                  | `127.0.0.1:3000 -> 3000`（**仅宿主机可访问**，不得暴露 0.0.0.0）                |
+| 宝塔 DockerSite 站点名    | `chat.dyxcloud.com`                                                             |
+| 宝塔 Compose 显示名       | `my_nextchat`                                                                   |
+| 宝塔 Compose 实际 project | `03b890c97bdecc48c2294402d8768906`，即 `md5(my_nextchat)`                       |
+| Nginx 反代目标            | `http://127.0.0.1:3000`                                                         |
+| 数据库                    | 宿主机 PostgreSQL，配置在服务器 `/www/dk_project/my_NextChat/.env.baota`        |
+| 数据库服务器              | 宝塔 PostgreSQL 16（监听 `127.0.0.1:5432` + `172.20.0.1:5432`）                 |
+| 默认管理员                | `user:admin`（`NEXTCHAT_DEFAULT_USER_ID` / `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`） |
 
 部署链路：
 
@@ -40,28 +40,28 @@
 
 ### 2.1 仓库内文件
 
-| 文件 | 用途 |
-|---|---|
-| `/www/dk_project/my_NextChat/docker-compose.baota.yml` | 宝塔专用 Compose 源文件，通过 Docker 网桥直连宿主机 PostgreSQL |
-| `/www/dk_project/my_NextChat/.env.baota` | 线上真实环境变量，**必须保留现有数据库密码和 `APP_SECRET`** |
-| `/www/dk_project/my_NextChat/Dockerfile` | 镜像构建文件 |
-| `/www/dk_project/my_NextChat/scripts/baota-register-dockersite.py` | 调用宝塔官方内部接口注册 DockerSite |
+| 文件                                                               | 用途                                                           |
+| ------------------------------------------------------------------ | -------------------------------------------------------------- |
+| `/www/dk_project/my_NextChat/docker-compose.baota.yml`             | 宝塔专用 Compose 源文件，通过 Docker 网桥直连宿主机 PostgreSQL |
+| `/www/dk_project/my_NextChat/.env.baota`                           | 线上真实环境变量，**必须保留现有数据库密码和 `APP_SECRET`**    |
+| `/www/dk_project/my_NextChat/Dockerfile`                           | 镜像构建文件                                                   |
+| `/www/dk_project/my_NextChat/scripts/baota-register-dockersite.py` | 调用宝塔官方内部接口注册 DockerSite                            |
 
 ### 2.2 宝塔面板实际读取的文件
 
-| 文件/目录 | 用途 |
-|---|---|
-| `/www/server/panel/data/compose/my_nextchat/docker-compose.yaml` | 宝塔 Compose 页面读取的 Compose 文件 |
-| `/www/server/panel/data/compose/my_nextchat/.env` | 宝塔 Compose 页面读取的 env 文件 |
-| `/www/server/panel/data/db/docker.db` | 宝塔 Docker / DockerSite 数据库（**当前数据源**） |
-| `/www/server/panel/data/db/site.db` | 宝塔普通网站数据库；残留同域名记录会阻止 DockerSite 创建 |
-| `/www/server/panel/data/db/ssl_data.db` | 宝塔证书数据库，证书到期提醒依赖普通站点兼容 ID |
-| `/www/dk_project/sites/chat.dyxcloud.com/chat.dyxcloud.com.json` | 宝塔 DockerSite 站点 JSON |
-| `/www/server/panel/vhost/nginx/chat.dyxcloud.com.conf` | 宝塔 Nginx vhost |
-| `/www/server/panel/vhost/cert/chat.dyxcloud.com/fullchain.pem` | `chat.dyxcloud.com` 证书链 |
-| `/www/server/panel/vhost/cert/chat.dyxcloud.com/privkey.pem` | `chat.dyxcloud.com` 私钥 |
-| `/www/wwwlogs/chat.dyxcloud.com.log` | 访问日志 |
-| `/www/wwwlogs/chat.dyxcloud.com.error.log` | 错误日志 |
+| 文件/目录                                                        | 用途                                                     |
+| ---------------------------------------------------------------- | -------------------------------------------------------- |
+| `/www/server/panel/data/compose/my_nextchat/docker-compose.yaml` | 宝塔 Compose 页面读取的 Compose 文件                     |
+| `/www/server/panel/data/compose/my_nextchat/.env`                | 宝塔 Compose 页面读取的 env 文件                         |
+| `/www/server/panel/data/db/docker.db`                            | 宝塔 Docker / DockerSite 数据库（**当前数据源**）        |
+| `/www/server/panel/data/db/site.db`                              | 宝塔普通网站数据库；残留同域名记录会阻止 DockerSite 创建 |
+| `/www/server/panel/data/db/ssl_data.db`                          | 宝塔证书数据库，证书到期提醒依赖普通站点兼容 ID          |
+| `/www/dk_project/sites/chat.dyxcloud.com/chat.dyxcloud.com.json` | 宝塔 DockerSite 站点 JSON                                |
+| `/www/server/panel/vhost/nginx/chat.dyxcloud.com.conf`           | 宝塔 Nginx vhost                                         |
+| `/www/server/panel/vhost/cert/chat.dyxcloud.com/fullchain.pem`   | `chat.dyxcloud.com` 证书链                               |
+| `/www/server/panel/vhost/cert/chat.dyxcloud.com/privkey.pem`     | `chat.dyxcloud.com` 私钥                                 |
+| `/www/wwwlogs/chat.dyxcloud.com.log`                             | 访问日志                                                 |
+| `/www/wwwlogs/chat.dyxcloud.com.error.log`                       | 错误日志                                                 |
 
 > **注意**：`/www/server/panel/data/docker.db` 是旧空文件 / 旧副本，**不是当前 DockerSite 数据源**，不要改它。
 
@@ -85,6 +85,7 @@ ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new 
 ```
 
 最后一段 SQL 调用同步使用最新表列名，可直接复用 `scripts/probe-deployment.cjs`（仓库内已入仓，镜像自带，无需外部上传）：
+
 ```bash
 ssh ss 'docker exec nextchat node scripts/probe-deployment.cjs'                  # 仅看最近 1 行
 ssh ss 'docker exec nextchat node scripts/probe-deployment.cjs --limit 5'        # 最近 5 行
@@ -125,12 +126,14 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/fix-pg-hba.sh'
 ```
 
 脚本功能：
+
 1. 检测 PostgreSQL 数据目录（支持宝塔 `/www/server/pgsql/data` 等）
 2. 自动检测容器网络 IP 和网段
 3. 在 pg_hba.conf 添加必要的 `host nextchat|nextchat_backup dyx x.x.x.0/xx md5` 规则
 4. 重载 PostgreSQL 配置
 
 如脚本无法自动重载，需手动重载：
+
 ```bash
 ssh ss 'su - postgres -c "/www/server/pgsql/bin/pg_ctl reload -D /www/server/pgsql/data"'
 ```
@@ -172,24 +175,23 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 
 `docker-compose.baota.yml` 通过 `env_file: /www/dk_project/my_NextChat/.env.baota` 注入所有环境变量。除了 `DATABASE_URL` / `PG*` 主库连接之外，**当前线上必须额外配置以下 12 个 `BACKUP_*` 变量 + PG 超时 + 站点密码**，否则站内对话备份 / API 配置备份静默不可用：
 
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `BACKUP_DATABASE_URL` | 优先 | 备份库完整连接字符串，覆盖其他 `BACKUP_PG*` |
-| `BACKUP_PGHOST` | 是 | 备份库主机（未设 `BACKUP_DATABASE_URL` 时使用） |
-| `BACKUP_PGPORT` | 否 | 备份库端口，默认 `5432` |
-| `BACKUP_PGDATABASE` | 是 | 备份库名（建议 `nextchat_backup`，与主库分离） |
-| `BACKUP_PGUSER` | 是 | 备份库用户名 |
-| `BACKUP_PGPASSWORD` | 是 | 备份库密码 |
-| `BACKUP_PGSSL` | 否 | 是否启用 SSL（`true`/`1`/`yes`/`on`） |
-| `BACKUP_PGSSLMODE` | 否 | SSL 模式；`require` 启用 SSL，`disable` 关闭 |
-| `BACKUP_PGPOOL_MAX` | 否 | 连接池上限，默认 `5` |
-| `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否 | 连接超时，默认 `10000` |
-| `BACKUP_PG_IDLE_TIMEOUT_MS` | 否 | 空闲超时，默认 `30000` |
-| `BACKUP_PG_RETRY_COUNT` | 否 | 重试次数，默认 `3` |
-| `PG_STATEMENT_TIMEOUT_MS` | 是 | 单语句超时；防止备份 / 增量同步被长事务拖死 |
-| `PG_IDLE_IN_TX_TIMEOUT_MS` | 是 | 空闲事务超时；防止误锁，代码默认 `60000` |
-| `PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验主库证书 |
-| `NEXTCHAT_SITE_PASSWORD` | 是 | 站点访问密码（开启站点访问密码门禁时） |
+| 变量                           | 必填 | 说明                                            |
+| ------------------------------ | ---- | ----------------------------------------------- |
+| `BACKUP_DATABASE_URL`          | 优先 | 备份库完整连接字符串，覆盖其他 `BACKUP_PG*`     |
+| `BACKUP_PGHOST`                | 是   | 备份库主机（未设 `BACKUP_DATABASE_URL` 时使用） |
+| `BACKUP_PGPORT`                | 否   | 备份库端口，默认 `5432`                         |
+| `BACKUP_PGDATABASE`            | 是   | 备份库名（建议 `nextchat_backup`，与主库分离）  |
+| `BACKUP_PGUSER`                | 是   | 备份库用户名                                    |
+| `BACKUP_PGPASSWORD`            | 是   | 备份库密码                                      |
+| `BACKUP_PGSSL`                 | 否   | 是否启用 SSL（`true`/`1`/`yes`/`on`）           |
+| `BACKUP_PGSSLMODE`             | 否   | SSL 模式；`require` 启用 SSL，`disable` 关闭    |
+| `BACKUP_PGPOOL_MAX`            | 否   | 连接池上限，默认 `5`                            |
+| `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否   | 连接超时，默认 `10000`                          |
+| `BACKUP_PG_IDLE_TIMEOUT_MS`    | 否   | 空闲超时，默认 `30000`                          |
+| `BACKUP_PG_RETRY_COUNT`        | 否   | 重试次数，默认 `3`                              |
+| `PG_STATEMENT_TIMEOUT_MS`      | 是   | 单语句超时；防止备份 / 增量同步被长事务拖死     |
+| `PG_IDLE_IN_TX_TIMEOUT_MS`     | 是   | 空闲事务超时；防止误锁，代码默认 `60000`        |
+| `PGSSL_REJECT_UNAUTHORIZED`    | 否   | 是否校验主库证书                                |
 
 主库和独立备份库**都要**纳入宝塔 `pg_dump` 计划任务范围。完整字段定义与默认值见 [DEPLOY.md](./DEPLOY.md)。
 
@@ -224,14 +226,14 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 
 ## 4. 日常部署 / 重启 / 清理快捷命令
 
-| 场景 | 命令 |
-|---|---|
-| 重建镜像并发布 | §3 标准重部署流程 |
-| 仅重启当前镜像 | `docker-compose ... up -d --no-build`（见 §3 末尾） |
-| 写部署版本并同步 `container_id` | `scripts/sync-baota-dockersite-container-id.sh` |
-| 停止应用但保留数据 | `docker rm -f nextchat` |
+| 场景                             | 命令                                                    |
+| -------------------------------- | ------------------------------------------------------- |
+| 重建镜像并发布                   | §3 标准重部署流程                                       |
+| 仅重启当前镜像                   | `docker-compose ... up -d --no-build`（见 §3 末尾）     |
+| 写部署版本并同步 `container_id`  | `scripts/sync-baota-dockersite-container-id.sh`         |
+| 停止应用但保留数据               | `docker rm -f nextchat`                                 |
 | 清理旧镜像（仅限 NextChat 专用） | `docker image rm nextchat-baota:latest nextchat:latest` |
-| 重置宝塔 DockerSite 记录 | 跑 `scripts/baota-register-dockersite.py` |
+| 重置宝塔 DockerSite 记录         | 跑 `scripts/baota-register-dockersite.py`               |
 
 ## 5. 同步宝塔 Compose 页面（首次或大改后）
 
@@ -269,7 +271,11 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -452,7 +458,13 @@ echo "backup=$BACK"
 REMOTE
 ```
 
-PostgreSQL 数据本身继续使用 `pg_dump` + 宝塔计划任务备份，主业务库与独立备份库都必须覆盖。
+PostgreSQL 数据本身继续使用 `pg_dump` 备份，主业务库与独立备份库都必须覆盖。
+
+当前已配置（2026-10-22）：root crontab 每天 03:30 执行 `/www/backup/database/pgsql/nextchat-pgdump.sh`，把 `nextchat`、`nextchat_backup` 以 `pg_dump -Fc` 导出到 `/www/backup/database/pgsql/<库名>-<时间>.dump`（权限 600），导出后用 `pg_restore --list` 校验，仅在本轮两个库都成功时清理 14 天前的备份；日志写入同目录 `nextchat-pgdump.log`。恢复示例（会覆盖目标库对象，执行前先确认并另行备份）：
+
+```bash
+/www/server/pgsql/bin/pg_restore -U postgres -h 127.0.0.1 -d nextchat --clean --if-exists /www/backup/database/pgsql/nextchat-YYYYMMDD-HHMMSS.dump
+```
 
 ## 相关文档
 

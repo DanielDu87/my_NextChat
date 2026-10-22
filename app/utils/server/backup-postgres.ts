@@ -2,6 +2,7 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import {
   getPostgresEnv,
   isPostgresTemporarilyUnavailableError,
+  shouldResetPoolForError,
 } from "./postgres";
 
 type BackupPostgresEnv = {
@@ -123,6 +124,7 @@ async function withRetryableBackupPostgresOperation<T>(
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const poolBeforeAttempt = globalThis.__nextchatBackupPostgresPool;
     try {
       return await operation();
     } catch (error) {
@@ -139,7 +141,14 @@ async function withRetryableBackupPostgresOperation<T>(
         error instanceof Error ? error.message : String(error),
       );
 
-      await closeBackupPostgresPool().catch(() => {});
+      // 与主库一致：仅连接层错误且池未被其他请求重建时才关闭连接池。
+      if (
+        shouldResetPoolForError(error) &&
+        poolBeforeAttempt &&
+        globalThis.__nextchatBackupPostgresPool === poolBeforeAttempt
+      ) {
+        await closeBackupPostgresPool().catch(() => {});
+      }
       const delay = Math.min(1000, 150 * (attempt + 1) * (attempt + 1));
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

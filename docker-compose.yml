@@ -23,7 +23,7 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     profiles: [local-db]
-    image: docker.m.daocloud.io/library/postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: nextchat-postgres
     restart: unless-stopped
     environment:
@@ -35,7 +35,11 @@ services:
     volumes:
       - nextchat-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-postgres} -d ${PGDATABASE:-nextchat}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${PGUSER:-postgres} -d ${PGDATABASE:-nextchat}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -82,6 +86,10 @@ services:
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1,0.0.0.0,host.docker.internal,.local}
       - no_proxy=${NO_PROXY:-localhost,127.0.0.1,::1,0.0.0.0,host.docker.internal,.local}
       - NODE_ENV=development
+      # 本地代理 DNS 不应答部分域名的 AAAA 时，musl 解析会卡 5s；先查 IPv4 并放大 libuv 线程池，
+      # 避免慢解析占满线程池、连带数据库隧道与其他上游请求一起超时（见 scripts/dev-ipv4-first-dns.cjs）。
+      - NODE_OPTIONS=--max-old-space-size=4096 --require /app/scripts/dev-ipv4-first-dns.cjs
+      - UV_THREADPOOL_SIZE=${UV_THREADPOOL_SIZE:-64}
       - HOSTNAME=0.0.0.0
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false}
       - CHOKIDAR_INTERVAL=${CHOKIDAR_INTERVAL:-1000}
@@ -239,7 +247,13 @@ services:
       # 持久化数据存储
       - nextchat-data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/config', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/config', (r) => process.exit(r.statusCode === 200 ? 0 : 1))",
+        ]
       interval: 30s
       timeout: 5s
       start_period: 30s
@@ -300,7 +314,7 @@ services:
   # ---------------------------------------------------------------------------
   nextchat-official:
     profiles: [official]
-    image: docker.m.daocloud.io/yidadaa/chatgpt-next-web:latest
+    image: ${NEXTCHAT_OFFICIAL_IMAGE:-yidadaa/chatgpt-next-web:latest}
     container_name: nextchat
     restart: unless-stopped
     ports:

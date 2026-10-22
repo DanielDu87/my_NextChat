@@ -9,18 +9,29 @@
   --black: rgb(48, 48, 48);
   --gray: rgb(250, 250, 250);
   --primary: rgb(29, 147, 171);
-  --chat-loading-primary: var(--primary);
   --primary-button-border: var(--primary);
-  --primary-button-bg: color-mix(in srgb, var(--primary-button-border) 70%, white);
+  --primary-button-bg: color-mix(
+    in srgb,
+    var(--primary-button-border) 70%,
+    white
+  );
   --primary-button-hover-bg: var(--primary);
   --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 70%, white);
   --second: rgb(231, 248, 255);
   --hover-color: #f3f3f3;
   --bar-color: rgba(0, 0, 0, 0.1);
+  /* 文字层级：基于 --black 混合，对白底分别约 7.0 / 4.5 / 3.6 */
+  --text-secondary: color-mix(in srgb, var(--black) 80%, transparent);
+  --text-muted: color-mix(in srgb, var(--black) 66%, transparent);
+  --text-placeholder: rgba(60, 60, 67, 0.62);
+  --surface-muted: color-mix(in srgb, var(--black) 5%, var(--white));
+  --border-subtle: color-mix(in srgb, var(--black) 12%, transparent);
+  /* 单色图标颜色：app/icons 内原写死的 #333 描边/填充统一走此变量 */
+  --icon-color: #333;
   --sidebar-search-placeholder: rgba(60, 60, 67, 0.62);
-  --chat-input-placeholder: rgba(60, 60, 67, 0.45);
+  --chat-input-placeholder: var(--text-placeholder);
   --chat-input-disabled-bg: #f5f5f5;
-  --chat-input-disabled-placeholder: rgba(60, 60, 67, 0.45);
+  --chat-input-disabled-placeholder: var(--text-placeholder);
   --code-copy-bg: rgba(255, 255, 255, 0.88);
   --code-copy-hover-bg: #ffffff;
   --code-copy-color: #57606a;
@@ -32,32 +43,35 @@
   --user-avatar-border: rgba(31, 35, 40, 0.08);
   --model-selector-border-color: rgba(100, 116, 139, 0.38);
   --model-selector-list-bg: var(--white);
-  --model-selector-group-bg: color-mix(in srgb,
-      var(--black) 5%,
-      var(--white));
-  --model-selector-hover-bg: color-mix(in srgb,
-      var(--primary) 8%,
-      var(--white));
-  --model-selector-selected-bg: color-mix(in srgb,
-      var(--primary) 13%,
-      var(--white));
-  --model-selector-count-bg: color-mix(in srgb,
-      var(--black) 9%,
-      var(--white));
+  --model-selector-group-bg: color-mix(in srgb, var(--black) 5%, var(--white));
+  --model-selector-hover-bg: color-mix(
+    in srgb,
+    var(--primary) 8%,
+    var(--white)
+  );
+  --model-selector-selected-bg: color-mix(
+    in srgb,
+    var(--primary) 13%,
+    var(--white)
+  );
+  --model-selector-count-bg: color-mix(in srgb, var(--black) 9%, var(--white));
   --model-selector-overlay-bg: rgba(0, 0, 0, 0.18);
-  --model-selector-panel-bg: color-mix(in srgb,
-      var(--primary) 10%,
-      var(--white));
-  --model-selector-panel-border: color-mix(in srgb,
-      var(--black) 10%,
-      transparent);
+  --model-selector-panel-bg: color-mix(
+    in srgb,
+    var(--primary) 10%,
+    var(--white)
+  );
+  --model-selector-panel-border: color-mix(
+    in srgb,
+    var(--black) 10%,
+    transparent
+  );
   --model-selector-panel-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.14);
-  --nextchat-picker-overlay-bg: rgba(0, 0, 0, 0.18);
+  /* 通用选择面板与模型选择面板共用同一套表面 token */
+  --nextchat-picker-overlay-bg: var(--model-selector-overlay-bg);
   --nextchat-picker-surface-bg: var(--model-selector-panel-bg);
-  --nextchat-picker-surface-border: color-mix(in srgb,
-      var(--black) 10%,
-      transparent);
-  --nextchat-picker-surface-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.14);
+  --nextchat-picker-surface-border: var(--model-selector-panel-border);
+  --nextchat-picker-surface-shadow: var(--model-selector-panel-shadow);
   --theme-color: var(--gray);
 
   /* shadow */
@@ -77,14 +91,25 @@
   --gray: rgb(21, 21, 21);
   --primary: rgb(29, 147, 171);
   --primary-button-border: #0f5f6f;
-  --primary-button-bg: color-mix(in srgb, var(--primary-button-border) 22%, transparent);
+  --primary-button-bg: color-mix(
+    in srgb,
+    var(--primary-button-border) 22%,
+    transparent
+  );
   --primary-button-hover-bg: var(--primary-button-border);
   --second: rgb(27 38 42);
   --hover-color: #323232;
+  --text-secondary: color-mix(in srgb, var(--black) 80%, transparent);
+  --text-muted: color-mix(in srgb, var(--black) 66%, transparent);
+  --text-placeholder: rgba(235, 235, 245, 0.5);
+  --surface-muted: color-mix(in srgb, var(--black) 6%, var(--white));
+  --border-subtle: color-mix(in srgb, var(--black) 16%, transparent);
+  /* 取代旧的 div>svg { filter: invert(0.5) } 全局反相：图标亮度略低于正文，彩色图标保留原色 */
+  --icon-color: color-mix(in srgb, var(--black) 80%, var(--white));
   --sidebar-search-placeholder: rgba(235, 235, 245, 0.52);
-  --chat-input-placeholder: rgba(235, 235, 245, 0.24);
+  --chat-input-placeholder: var(--text-placeholder);
   --chat-input-disabled-bg: rgba(255, 255, 255, 0.08);
-  --chat-input-disabled-placeholder: rgba(235, 235, 245, 0.24);
+  --chat-input-disabled-placeholder: var(--text-placeholder);
   --code-copy-bg: rgba(22, 27, 34, 0.86);
   --code-copy-hover-bg: #30363d;
   --code-copy-color: #c9d1d9;
@@ -94,42 +119,38 @@
   --user-avatar-bg: #252932;
   --user-avatar-color: #c9d1d9;
   --user-avatar-border: rgba(240, 246, 252, 0.12);
-  --model-selector-border-color: color-mix(in srgb,
-      var(--black) 12%,
-      transparent);
+  --model-selector-border-color: color-mix(
+    in srgb,
+    var(--black) 12%,
+    transparent
+  );
   --model-selector-list-bg: var(--white);
   --model-selector-group-bg: var(--gray);
-  --model-selector-hover-bg: color-mix(in srgb,
-      var(--black) 3%,
-      var(--white));
-  --model-selector-selected-bg: color-mix(in srgb,
-      var(--black) 5%,
-      var(--white));
-  --model-selector-count-bg: color-mix(in srgb,
-      var(--black) 8%,
-      var(--gray));
+  --model-selector-hover-bg: color-mix(in srgb, var(--black) 3%, var(--white));
+  --model-selector-selected-bg: color-mix(
+    in srgb,
+    var(--black) 5%,
+    var(--white)
+  );
+  --model-selector-count-bg: color-mix(in srgb, var(--black) 8%, var(--gray));
   --model-selector-overlay-bg: rgba(0, 0, 0, 0.52);
   --model-selector-panel-bg: rgb(45, 45, 45);
-  --model-selector-panel-border: color-mix(in srgb,
-      var(--black) 20%,
-      transparent);
+  --model-selector-panel-border: color-mix(
+    in srgb,
+    var(--black) 20%,
+    transparent
+  );
   --model-selector-panel-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.46);
-  --nextchat-picker-overlay-bg: rgba(0, 0, 0, 0.52);
-  --nextchat-picker-surface-bg: rgb(45, 45, 45);
-  --nextchat-picker-surface-border: color-mix(in srgb,
-      var(--black) 16%,
-      transparent);
-  --nextchat-picker-surface-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.46);
+  --nextchat-picker-overlay-bg: var(--model-selector-overlay-bg);
+  --nextchat-picker-surface-bg: var(--model-selector-panel-bg);
+  --nextchat-picker-surface-border: var(--model-selector-panel-border);
+  --nextchat-picker-surface-shadow: var(--model-selector-panel-shadow);
 
   --bar-color: rgba(255, 255, 255, 0.1);
 
   --border-in-light: 1px solid rgba(255, 255, 255, 0.192);
 
   --theme-color: var(--gray);
-
-  div:not(.no-dark)>svg {
-    filter: invert(0.5);
-  }
 }
 
 :root {
@@ -140,22 +161,24 @@
   --sidebar-width: 350px;
   --window-min-width: var(--sidebar-width);
   --window-content-width: calc(100% - var(--sidebar-width));
-  --message-max-width: 88%;
   --full-height: 100%;
-  --close-button-border-width: 1px;
-  --close-button-border-color: rgba(100, 116, 139, 0.24);
-  --close-button-hover-shadow: 0 0 0 1px var(--primary), var(--card-shadow);
   --close-button-idle-border-color: rgba(100, 116, 139, 0.24);
   --input-control-border-color: rgba(148, 163, 184, 0.42);
   --input-control-radius: 10px;
-  --input-control-hover-bg: color-mix(in srgb,
-      var(--primary) 10%,
-      var(--white));
-  --input-control-hover-border-color: color-mix(in srgb,
-      var(--primary) 70%,
-      transparent);
-  --input-control-hover-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
-  --input-control-focus-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 32%, transparent);
+  --input-control-hover-bg: color-mix(
+    in srgb,
+    var(--primary) 10%,
+    var(--white)
+  );
+  --input-control-hover-border-color: color-mix(
+    in srgb,
+    var(--primary) 70%,
+    transparent
+  );
+  --input-control-hover-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--primary) 14%, transparent);
+  --input-control-focus-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--primary) 32%, transparent);
 
   /* 危险色 / 备份绿：主按钮和危险按钮的语义颜色 */
   --danger-color: #ff4d4f;
@@ -163,7 +186,38 @@
   --backup-green: #22a06b;
   --primary-75-bg: var(--primary-button-bg);
   --danger-75-bg: color-mix(in srgb, var(--danger-color) 75%, white);
-  --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 22%, transparent);
+  --backup-green-75-bg: color-mix(
+    in srgb,
+    var(--backup-green) 22%,
+    transparent
+  );
+
+  /* ===== 设计 token：圆角 / 字号 / 动效 / 层级 ===== */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+  --radius-3xl: 16px;
+  --radius-4xl: 20px;
+  --radius-5xl: 24px;
+  --radius-pill: 999px;
+
+  --duration-fast: 0.15s;
+  --duration-base: 0.2s;
+  --duration-slow: 0.3s;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 层级：浏览器会把超过 2147483647 的 z-index 截断成同一个值，
+     因此历史上的 99999999999999 / 100000000000000 实际相等；统一改为下列有序刻度。 */
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-overlay: 1000;
+  --z-toast: 10000;
+  --z-top: 100000;
+  --z-top-above: 100001;
 }
 
 /* 只跟随网页设置的主题，优先级最高 */
@@ -224,15 +278,11 @@ html[data-draw-theme="dark"] body {
 }
 
 @media only screen and (max-width: 650px),
-only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   :root {
     --window-width: 100vw;
     --window-height: var(--full-height);
     --window-content-width: var(--window-width);
-    --message-max-width: 100%;
-    --close-button-border-width: 2px;
-    --close-button-border-color: rgba(148, 163, 184, 0.26);
-    --close-button-hover-shadow: var(--card-shadow);
   }
 
   .no-mobile {
@@ -247,8 +297,9 @@ html {
   text-size-adjust: 100%;
   background-color: var(--gray);
 
-  font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
-    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  font-family:
+    "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons", "PingFang SC",
+    "Helvetica Neue", "Helvetica", "Arial", sans-serif;
 }
 
 body {
@@ -269,16 +320,49 @@ body {
   text-size-adjust: 100%;
 
   @media only screen and (max-width: 650px),
-  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+    only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     background-color: var(--second);
     display: block;
     width: 100%;
     min-height: var(--full-height);
   }
+}
 
-  *:focus-visible {
-    outline: none;
+/* 系统开启“减少动态效果”时，统一关闭过渡与平滑滚动（加载动画等持续动画保留，避免丢失状态反馈）。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+/* 以属性形式写死颜色的单色图标（stroke="#333" 等）：作者样式优先于 SVG 表现属性，
+   :where() 零特异性，任何组件规则都能覆盖。 */
+:where([stroke="#333"], [stroke="#000"]) {
+  stroke: var(--icon-color);
+}
+
+:where([fill="#333"]) {
+  fill: var(--icon-color);
+}
+
+/* 键盘焦点可见：只作用于按钮、链接等非文本输入元素（文本输入框的焦点由 nextchat-input-control 负责），
+   :where() 让特异性只有 :focus-visible 一项，组件可自行覆盖。 */
+:where(
+  button,
+  a,
+  summary,
+  select,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: 2px;
 }
 
 /* 输入类职责约定：
@@ -327,7 +411,7 @@ body {
   gap: 10px;
   padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--white);
   color: var(--black);
   cursor: pointer;
@@ -353,12 +437,20 @@ body {
 
 .nextchat-menu-option:not(.nextchat-menu-option-active):hover,
 .nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible {
-  background-color: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 12%,
+    var(--white)
+  ) !important;
   outline: none;
 }
 
 .nextchat-menu-option-active {
-  background-color: color-mix(in srgb, var(--primary) 16%, var(--white)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 16%,
+    var(--white)
+  ) !important;
   color: var(--primary);
   font-weight: 600;
 
@@ -379,7 +471,11 @@ body {
 
 /* 带边框的菜单选项：由主题变量提供颜色，适用于模型商、供应商等展开列表。 */
 .nextchat-menu-option-bordered {
-  border: var(--nextchat-menu-option-border-width, 2px) solid var(--nextchat-menu-option-border-color, var(--close-button-idle-border-color)) !important;
+  border: var(--nextchat-menu-option-border-width, 2px) solid
+    var(
+      --nextchat-menu-option-border-color,
+      var(--close-button-idle-border-color)
+    ) !important;
   border-radius: var(--nextchat-menu-option-radius, 12px) !important;
   background: var(--nextchat-menu-option-background, var(--white)) !important;
   box-shadow: none !important;
@@ -389,17 +485,27 @@ body {
 .nextchat-menu-option-bordered:not(.nextchat-menu-option-active):hover,
 .nextchat-menu-option-bordered:not(.nextchat-menu-option-active):focus-visible {
   border-width: var(--nextchat-menu-option-border-width, 2px) !important;
-  border-color: var(--nextchat-menu-option-hover-border-color, var(--primary)) !important;
-  background: var(--nextchat-menu-option-hover-background,
-      var(--input-control-hover-bg)) !important;
+  border-color: var(
+    --nextchat-menu-option-hover-border-color,
+    var(--primary)
+  ) !important;
+  background: var(
+    --nextchat-menu-option-hover-background,
+    var(--input-control-hover-bg)
+  ) !important;
   color: var(--nextchat-menu-option-hover-color, var(--primary)) !important;
 }
 
 .nextchat-menu-option-bordered.nextchat-menu-option-active {
   border-width: var(--nextchat-menu-option-border-width, 2px) !important;
-  border-color: var(--nextchat-menu-option-active-border-color, var(--primary)) !important;
-  background: var(--nextchat-menu-option-active-background,
-      color-mix(in srgb, var(--primary) 16%, var(--white))) !important;
+  border-color: var(
+    --nextchat-menu-option-active-border-color,
+    var(--primary)
+  ) !important;
+  background: var(
+    --nextchat-menu-option-active-background,
+    color-mix(in srgb, var(--primary) 16%, var(--white))
+  ) !important;
 }
 
 /* ===========================================================================
@@ -429,7 +535,7 @@ body {
 
   select,
   .select-with-icon-select {
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     min-height: 40px;
     font-size: 13px;
     font-weight: 500;
@@ -462,7 +568,7 @@ body {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--close-button-idle-border-color) !important;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
   color: var(--black);
@@ -486,14 +592,26 @@ body.dark .nextchat-control-surface {
 }
 
 html[data-draw-theme="dark"] .nextchat-control-surface:not(:disabled):hover,
-html[data-draw-theme="dark"] .nextchat-select:not(.nextchat-select-disabled):hover .nextchat-control-surface,
-html[data-draw-theme="dark"] .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat-control-surface,
+html[data-draw-theme="dark"]
+  .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+html[data-draw-theme="dark"]
+  .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface,
 html.dark .nextchat-control-surface:not(:disabled):hover,
-html.dark .nextchat-select:not(.nextchat-select-disabled):hover .nextchat-control-surface,
-html.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat-control-surface,
+html.dark
+  .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+html.dark
+  .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface,
 body.dark .nextchat-control-surface:not(:disabled):hover,
-body.dark .nextchat-select:not(.nextchat-select-disabled):hover .nextchat-control-surface,
-body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat-control-surface {
+body.dark
+  .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+body.dark
+  .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface {
   border-color: var(--primary) !important;
   background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
@@ -501,7 +619,6 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
 
 .nextchat-select:not(.nextchat-select-disabled):hover,
 .nextchat-select:not(.nextchat-select-disabled):focus-within {
-
   select,
   .select-with-icon-select,
   .nextchat-select-trigger {
@@ -535,8 +652,8 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
   pointer-events: none;
   transform: translateY(-50%);
   transition:
-    color 0.2s ease,
-    transform 0.2s ease;
+    color var(--duration-base) ease,
+    transform var(--duration-base) ease;
 
   path {
     stroke: currentColor !important;
@@ -575,7 +692,7 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
   overflow-y: auto;
   padding: 8px;
   border: 1px solid rgba(203, 213, 225, 0.9);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--white);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
 }
@@ -591,7 +708,7 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
   box-sizing: border-box;
   padding: 0 14px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--white) !important;
   color: var(--black);
   cursor: pointer;
@@ -600,12 +717,15 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
   font-weight: 500;
   line-height: 1.2;
   text-align: left;
-
 }
 
 .nextchat-select-option:not(.nextchat-select-option-active):hover,
 .nextchat-select-option:not(.nextchat-select-option-active):focus-visible {
-  background-color: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 12%,
+    var(--white)
+  ) !important;
   color: var(--primary);
   outline: none;
 }
@@ -648,7 +768,11 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within .nextchat
 }
 
 .nextchat-select-option-active {
-  background-color: color-mix(in srgb, var(--primary) 16%, var(--white)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 16%,
+    var(--white)
+  ) !important;
   color: var(--primary);
   font-weight: 700;
 }
@@ -669,20 +793,32 @@ body.dark .nextchat-select-option {
   color: #dbe6f3;
 }
 
-html[data-draw-theme="dark"] .nextchat-select-option:not(.nextchat-select-option-active):hover,
-html[data-draw-theme="dark"] .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
+html[data-draw-theme="dark"]
+  .nextchat-select-option:not(.nextchat-select-option-active):hover,
+html[data-draw-theme="dark"]
+  .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
 html.dark .nextchat-select-option:not(.nextchat-select-option-active):hover,
-html.dark .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
+html.dark
+  .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
 body.dark .nextchat-select-option:not(.nextchat-select-option-active):hover,
-body.dark .nextchat-select-option:not(.nextchat-select-option-active):focus-visible {
-  background-color: color-mix(in srgb, var(--primary) 18%, var(--white)) !important;
+body.dark
+  .nextchat-select-option:not(.nextchat-select-option-active):focus-visible {
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 18%,
+    var(--white)
+  ) !important;
   color: #8bd5e4;
 }
 
 html[data-draw-theme="dark"] .nextchat-select-option-active,
 html.dark .nextchat-select-option-active,
 body.dark .nextchat-select-option-active {
-  background-color: color-mix(in srgb, var(--primary) 24%, var(--white)) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary) 24%,
+    var(--white)
+  ) !important;
   color: #9ee4ef;
 }
 
@@ -697,7 +833,7 @@ button[data-close-button="true"] {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--close-button-idle-border-color) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   box-sizing: border-box !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
@@ -760,8 +896,8 @@ button[data-close-button="true"] svg {
   filter: none !important;
 }
 
-.nextchat-close-button svg>g,
-button[data-close-button="true"] svg>g {
+.nextchat-close-button svg > g,
+button[data-close-button="true"] svg > g {
   transform: none !important;
 }
 
@@ -778,7 +914,7 @@ button[data-close-button="true"] svg path {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--close-button-idle-border-color) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
   color: var(--black);
@@ -820,7 +956,11 @@ button[data-close-button="true"] svg path {
   transition: none !important;
 }
 
-.window-header .window-actions button.nextchat-default-button:not([data-close-button="true"]):not([class*="chat-export-action"]):not(:disabled):not([disabled]) {
+.window-header
+  .window-actions
+  button.nextchat-default-button:not([data-close-button="true"]):not(
+    [class*="chat-export-action"]
+  ):not(:disabled):not([disabled]) {
   border-color: var(--close-button-idle-border-color) !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
@@ -829,9 +969,21 @@ button[data-close-button="true"] svg path {
   filter: none !important;
 }
 
-.window-header .window-actions button.nextchat-default-button:not([data-close-button="true"]):not([class*="chat-export-action"]):not(:disabled):hover,
-.window-header .window-actions button.nextchat-default-button:not([data-close-button="true"]):not([class*="chat-export-action"]):not(:disabled):focus-visible,
-.window-header .window-actions button.nextchat-default-button:not([data-close-button="true"]):not([class*="chat-export-action"]):not(:disabled):active {
+.window-header
+  .window-actions
+  button.nextchat-default-button:not([data-close-button="true"]):not(
+    [class*="chat-export-action"]
+  ):not(:disabled):hover,
+.window-header
+  .window-actions
+  button.nextchat-default-button:not([data-close-button="true"]):not(
+    [class*="chat-export-action"]
+  ):not(:disabled):focus-visible,
+.window-header
+  .window-actions
+  button.nextchat-default-button:not([data-close-button="true"]):not(
+    [class*="chat-export-action"]
+  ):not(:disabled):active {
   border-color: var(--primary) !important;
   background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
@@ -843,8 +995,8 @@ button[data-close-button="true"] svg path {
 
 /* 导出按钮禁用态 - 高优先级覆盖 */
 /* 暗色模式窗口按钮禁用态 - export 按钮 */
-:global(body.dark) .window-header .window-actions button.chat-export-action:disabled,
-:global(body.dark) .window-header .window-actions button.chat-export-action[disabled] {
+body.dark .window-header .window-actions button.chat-export-action:disabled,
+body.dark .window-header .window-actions button.chat-export-action[disabled] {
   opacity: 1 !important;
   color: rgba(148, 163, 184, 0.88) !important;
   background-color: rgba(71, 85, 105, 0.24) !important;
@@ -870,8 +1022,12 @@ button[data-close-button="true"] svg path {
 }
 
 /* 亮色模式窗口按钮禁用态（排除 export 按钮） */
-.window-header .window-actions button:disabled:not([class*="chat-export-action"]),
-.window-header .window-actions button[disabled]:not([class*="chat-export-action"]) {
+.window-header
+  .window-actions
+  button:disabled:not([class*="chat-export-action"]),
+.window-header
+  .window-actions
+  button[disabled]:not([class*="chat-export-action"]) {
   opacity: 1 !important;
   color: #ffffff !important;
   background-color: rgba(100, 116, 139, 0.24) !important;
@@ -896,7 +1052,7 @@ button[data-close-button="true"] svg path {
   /* 同样需要显式 border-style: solid，原因与 .nextchat-default-button 一致 */
   border: 2px solid var(--close-button-idle-border-color) !important;
   border-style: solid !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
   box-sizing: border-box;
@@ -905,9 +1061,9 @@ button[data-close-button="true"] svg path {
   filter: none !important;
   cursor: pointer !important;
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease;
 }
 
 .nextchat-action-button:not(:disabled):hover,
@@ -951,7 +1107,7 @@ button[class*="icon-button"][class*="primary"] {
   border-width: 2px !important;
   border-style: solid !important;
   border-color: var(--primary-button-border) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   color: white !important;
   background-color: var(--primary-button-bg) !important;
   box-shadow: none !important;
@@ -959,10 +1115,10 @@ button[class*="icon-button"][class*="primary"] {
   filter: none !important;
   cursor: pointer !important;
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease !important;
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    color var(--duration-base) ease !important;
 }
 
 .nextchat-primary-button:not(:disabled):hover,
@@ -1005,36 +1161,72 @@ button[class*="icon-button"][class*="primary"]:not(:disabled):active * {
      用 currentColor 直接继承按钮的文字颜色（白），保证图标与文字永远同色。
    两组规则都用 [style*="..."] 子串匹配以保证特异性 0,3,1，高于任何不依赖 class 的图标规则。
    排除 chat-input-send（聊天发送/停止按钮，圆形绝对定位的特例）以免任何图标规则影响其特殊布局。 */
-.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
-button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
-button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"] {
+.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path[style*="stroke"],
+button.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path[style*="stroke"],
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path[style*="stroke"] {
   fill: none !important;
   stroke: currentColor !important;
   stroke-opacity: 1 !important;
   filter: none !important;
 }
 
-.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
-.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle,
-button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
-button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle,
-button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
-button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle {
+.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path:not([style*="stroke"]),
+.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  circle,
+button.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path:not([style*="stroke"]),
+button.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  circle,
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  path:not([style*="stroke"]),
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  circle {
   fill: currentColor !important;
   stroke: none !important;
 }
 
-/* 暗色模式下全局 .dark 块里有 `div:not(.no-dark) > svg { filter: invert(0.5) }`，
-   会把已强制为白色的描边反相成灰色。原本靠 type="primary" 给图标 div 加 .no-dark 排除，
-   现在显式用类名选择器排除主按钮的图标 SVG。
-   同样排除 chat-input-send 这种已有完整暗色模式处理的特殊按钮。 */
-.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"]>svg,
-button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"]>svg,
-button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"]>svg {
+/* 主按钮图标不叠加任何滤镜，保证与白色文字同色（chat-input-send 有独立处理）。 */
+.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  > svg,
+button.nextchat-primary-button:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  > svg,
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"])
+  [class*="icon-button-icon"]
+  > svg {
   filter: none !important;
 }
 
 /* ---------- 危险按钮（danger）---------- */
+/* 暗色模式下危险按钮图标保持历史外观（灰色）：原先由全局 div>svg { filter: invert(0.5) } 产生，
+   全局反相移除后仅在这里保留，避免“清空 / 删除”等按钮图标在暗色下变成红色。 */
+body.dark .nextchat-danger-button [class*="icon-button-icon"] > svg,
+body.dark .nextchat-danger-button-filled [class*="icon-button-icon"] > svg,
+html[data-draw-theme="dark"]
+  .nextchat-danger-button
+  [class*="icon-button-icon"]
+  > svg,
+html[data-draw-theme="dark"]
+  .nextchat-danger-button-filled
+  [class*="icon-button-icon"]
+  > svg {
+  filter: invert(0.5);
+}
+
 .nextchat-danger-button,
 button.nextchat-danger-button,
 button[class*="icon-button"][class*="danger"] {
@@ -1042,7 +1234,7 @@ button[class*="icon-button"][class*="danger"] {
   border-width: 2px !important;
   border-style: solid !important;
   border-color: var(--danger-color) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   color: var(--danger-color) !important;
   background-color: var(--danger-color-bg) !important;
   box-shadow: none !important;
@@ -1050,10 +1242,10 @@ button[class*="icon-button"][class*="danger"] {
   filter: none !important;
   cursor: pointer !important;
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease !important;
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    color var(--duration-base) ease !important;
 }
 
 .nextchat-danger-button:not(:disabled):hover,
@@ -1128,7 +1320,7 @@ button.nextchat-green-button {
   border-width: 2px !important;
   border-style: solid !important;
   border-color: var(--backup-green) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   color: white !important;
   background-color: var(--backup-green-75-bg) !important;
   box-shadow: none !important;
@@ -1136,10 +1328,10 @@ button.nextchat-green-button {
   filter: none !important;
   cursor: pointer !important;
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease !important;
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    color var(--duration-base) ease !important;
 }
 
 .nextchat-green-button:not(:disabled):hover,
@@ -1168,67 +1360,74 @@ button.nextchat-green-button:not(:disabled):active * {
   cursor: pointer !important;
 }
 
-.nextchat-green-button [class*="icon-button-icon"]>svg,
-button.nextchat-green-button [class*="icon-button-icon"]>svg,
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg {
+.nextchat-green-button [class*="icon-button-icon"] > svg,
+button.nextchat-green-button [class*="icon-button-icon"] > svg,
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] > svg {
   filter: none !important;
 }
 
 body.dark .nextchat-green-button:not(:disabled):hover,
 body.dark button.nextchat-green-button:not(:disabled):hover,
-body.dark button[class*="icon-button"][class*="green"]:not(:disabled):hover,
-.dark .nextchat-green-button:not(:disabled):hover,
-.dark button.nextchat-green-button:not(:disabled):hover,
-.dark button[class*="icon-button"][class*="green"]:not(:disabled):hover {
+body.dark button[class*="icon-button"][class*="green"]:not(:disabled):hover {
   background-color: var(--backup-green) !important;
   border-color: var(--backup-green) !important;
 }
 
 body.dark .nextchat-green-button,
 body.dark button.nextchat-green-button,
-body.dark button[class*="icon-button"][class*="green"],
-.dark .nextchat-green-button,
-.dark button.nextchat-green-button,
-.dark button[class*="icon-button"][class*="green"] {
+body.dark button[class*="icon-button"][class*="green"] {
   background-color: var(--backup-green-75-bg) !important;
 }
 
-body.dark .nextchat-green-button [class*="icon-button-icon"]>svg,
-.dark .nextchat-green-button [class*="icon-button-icon"]>svg,
-body.dark button.nextchat-green-button [class*="icon-button-icon"]>svg,
-.dark button.nextchat-green-button [class*="icon-button-icon"]>svg,
-body.dark button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg,
-.dark button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg {
+body.dark .nextchat-green-button [class*="icon-button-icon"] > svg,
+body.dark button.nextchat-green-button [class*="icon-button-icon"] > svg,
+body.dark
+  button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  > svg {
   filter: none !important;
 }
 
 .nextchat-green-button [class*="icon-button-icon"] path[style*="stroke"],
 button.nextchat-green-button [class*="icon-button-icon"] path[style*="stroke"],
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] path[style*="stroke"] {
+button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  path[style*="stroke"] {
   fill: none !important;
   stroke: currentColor !important;
   stroke-opacity: 1 !important;
 }
 
 .nextchat-green-button [class*="icon-button-icon"] path:not([style*="stroke"]),
-button.nextchat-green-button [class*="icon-button-icon"] path:not([style*="stroke"]),
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] path:not([style*="stroke"]),
+button.nextchat-green-button
+  [class*="icon-button-icon"]
+  path:not([style*="stroke"]),
+button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  path:not([style*="stroke"]),
 .nextchat-green-button [class*="icon-button-icon"] circle,
 button.nextchat-green-button [class*="icon-button-icon"] circle,
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] circle {
+button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  circle {
   fill: currentColor !important;
   stroke: none !important;
 }
 
 .nextchat-green-button [class*="icon-button-icon"] svg path,
 button.nextchat-green-button [class*="icon-button-icon"] svg path,
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] svg path,
+button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  svg
+  path,
 .nextchat-green-button [class*="icon-button-icon"] svg circle,
 button.nextchat-green-button [class*="icon-button-icon"] svg circle,
-button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] svg circle {
+button[class*="icon-button"][class*="green"]
+  [class*="icon-button-icon"]
+  svg
+  circle {
   fill: currentColor !important;
 }
-
 
 .nextchat-primary-button:disabled,
 .nextchat-primary-button:disabled *,
@@ -1253,7 +1452,6 @@ button.nextchat-green-button:disabled * {
   transition: none !important;
 }
 
-
 /* ---------- API 配置页公共类 ---------- */
 .nextchat-api-config-add-button {
   min-height: 38px;
@@ -1269,18 +1467,24 @@ button.nextchat-green-button:disabled * {
   filter: none !important;
 }
 
-.nextchat-api-config-add-button [class*="icon-button-icon"]>svg {
+.nextchat-api-config-add-button [class*="icon-button-icon"] > svg {
   filter: none !important;
 }
 
-.nextchat-api-config-add-button [class*="icon-button-icon"] svg path[style*="stroke"] {
+.nextchat-api-config-add-button
+  [class*="icon-button-icon"]
+  svg
+  path[style*="stroke"] {
   fill: none !important;
   stroke: currentColor !important;
   stroke-opacity: 1 !important;
   filter: none !important;
 }
 
-.nextchat-api-config-add-button [class*="icon-button-icon"] svg path:not([style*="stroke"]),
+.nextchat-api-config-add-button
+  [class*="icon-button-icon"]
+  svg
+  path:not([style*="stroke"]),
 .nextchat-api-config-add-button [class*="icon-button-icon"] svg circle {
   fill: currentColor !important;
   stroke: none !important;
@@ -1308,8 +1512,7 @@ button.nextchat-green-button:disabled * {
   transform: translateY(-1px) !important;
 }
 
-
-@media (max-width: 700px) {
+@media (max-width: 650px) {
   button.nextchat-api-config-backup-create-button.nextchat-green-button {
     align-self: stretch;
     display: inline-flex !important;
@@ -1323,10 +1526,11 @@ button.nextchat-green-button:disabled * {
     gap: 6px !important;
     font-size: 14px !important;
     font-weight: 600;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
-  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-text"] {
+  button.nextchat-api-config-backup-create-button.nextchat-green-button
+    [class*="icon-button-text"] {
     display: inline-flex !important;
     align-items: center !important;
     margin-left: 0 !important;
@@ -1334,7 +1538,8 @@ button.nextchat-green-button:disabled * {
     line-height: 18px !important;
   }
 
-  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-icon"] {
+  button.nextchat-api-config-backup-create-button.nextchat-green-button
+    [class*="icon-button-icon"] {
     display: inline-flex !important;
     flex: 0 0 16px !important;
     width: 16px !important;
@@ -1342,7 +1547,9 @@ button.nextchat-green-button:disabled * {
     margin: 0 !important;
   }
 
-  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-icon"]>svg {
+  button.nextchat-api-config-backup-create-button.nextchat-green-button
+    [class*="icon-button-icon"]
+    > svg {
     width: 16px !important;
     height: 16px !important;
   }
@@ -1401,21 +1608,30 @@ button.nextchat-green-button:disabled * {
 }
 
 /* ---------- hover-card（鼠标位置高亮卡片）---------- */
+/* 光斑只在指针悬停时出现：坐标由组件在 pointermove 时写入行内 --hover-x/--hover-y，
+   未悬停时颜色为透明，避免卡片中央常驻一团光晕。 */
+[style*="--hover-x"]:hover {
+  --hover-glow-color: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
 .nextchat-hover-card {
   --hover-x: 50%;
   --hover-y: 50%;
   position: relative;
   box-sizing: border-box;
   overflow: hidden;
-  background: radial-gradient(220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 12%, transparent),
-      transparent 62%),
+  background:
+    radial-gradient(
+      220px circle at var(--hover-x) var(--hover-y),
+      var(--hover-glow-color, transparent),
+      transparent 62%
+    ),
     var(--white);
   background-repeat: no-repeat;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
 .nextchat-hover-card:hover,
@@ -1426,10 +1642,8 @@ button.nextchat-green-button:disabled * {
     0 8px 20px rgba(0, 0, 0, 0.035);
 }
 
-:global(.dark) .nextchat-hover-card:hover,
-:global(.dark) .nextchat-hover-card:focus-within,
-:global(body.dark) .nextchat-hover-card:hover,
-:global(body.dark) .nextchat-hover-card:focus-within {
+body.dark .nextchat-hover-card:hover,
+body.dark .nextchat-hover-card:focus-within {
   border-color: color-mix(in srgb, var(--primary) 82%, transparent);
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
@@ -1438,22 +1652,42 @@ button.nextchat-green-button:disabled * {
 
 /* 统一 input / textarea / select / 公共输入类的 hover / focus 反馈。
    这里同时覆盖 control 和 surface，是为了让输入本体与自定义外壳共享同一套交互视觉。 */
-:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
+:is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
+      [type="reset"]
+    ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not(
+      [class*="chat-message-edit-input"]
+    ),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
-  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)) {
+  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(
+      :disabled
+    ):not(:read-only)
+) {
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    border-color var(--duration-base) ease,
+    box-shadow var(--duration-base) ease,
+    background-color var(--duration-base) ease;
 }
 
-:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
+:is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
+      [type="reset"]
+    ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not(
+      [class*="chat-message-edit-input"]
+    ),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
-  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):hover {
+  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(
+      :disabled
+    ):not(:read-only)
+):hover {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--primary) !important;
@@ -1462,16 +1696,36 @@ button.nextchat-green-button:disabled * {
   outline: none !important;
 }
 
-:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
+:is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
+      [type="reset"]
+    ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not(
+      [class*="chat-message-edit-input"]
+    ),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
-  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):focus,
-:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
+  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(
+      :disabled
+    ):not(:read-only)
+):focus,
+:is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
+      [type="reset"]
+    ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not(
+      [class*="chat-message-edit-input"]
+    ),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
-  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):focus-visible {
+  .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(
+      :disabled
+    ):not(:read-only)
+):focus-visible {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--primary) !important;
@@ -1492,10 +1746,10 @@ button.nextchat-green-button:disabled * {
 
 ::-webkit-scrollbar-thumb {
   background-color: transparent;
-  border-radius: 20px;
+  border-radius: var(--radius-4xl);
   background-clip: content-box;
   border: 1px solid transparent;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--duration-base) ease;
 }
 
 html {
@@ -1518,7 +1772,7 @@ html.scrollbar-visible ::-webkit-scrollbar-thumb {
 select {
   border: var(--border-in-light);
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   appearance: none;
   cursor: pointer;
   background-color: var(--white);
@@ -1548,7 +1802,7 @@ input[type="checkbox"] {
   color: var(--black);
   appearance: none;
   border: var(--border-in-light);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   height: 16px;
   width: 16px;
   display: inline-flex;
@@ -1576,9 +1830,9 @@ input[type="range"] {
   height: 8px;
   width: 20px;
   background-color: var(--primary);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all ease 0.3s;
+  transition: all ease var(--duration-slow);
   margin-left: 5px;
   border: none;
 }
@@ -1616,7 +1870,7 @@ input[type="number"],
 input[type="text"],
 input[type="password"] {
   appearance: none;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border-style: solid;
   border-width: 2px;
   border-color: var(--close-button-idle-border-color);
@@ -1660,7 +1914,7 @@ div.math {
   overscroll-behavior-x: contain;
 
   @media screen and (max-width: 650px),
-  screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+    screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     padding: 12px;
     align-items: center;
   }
@@ -1672,7 +1926,7 @@ div.math {
 }
 
 @media screen and (max-width: 650px),
-screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .modal-mask-small {
     align-items: center;
     justify-content: center;
@@ -1732,7 +1986,7 @@ pre {
     cursor: pointer;
     padding: 0 10px;
     border: 1px solid var(--code-copy-border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background-color: var(--code-copy-bg);
     box-shadow: var(--code-copy-shadow);
     color: var(--code-copy-color);
@@ -1742,11 +1996,11 @@ pre {
     pointer-events: all;
     opacity: 0.78;
     transition:
-      background-color ease 0.2s,
-      border-color ease 0.2s,
-      color ease 0.2s,
-      opacity ease 0.2s,
-      transform ease 0.2s;
+      background-color ease var(--duration-base),
+      border-color ease var(--duration-base),
+      color ease var(--duration-base),
+      opacity ease var(--duration-base),
+      transform ease var(--duration-base);
 
     &:after {
       content: "Copy";
@@ -1776,7 +2030,7 @@ pre {
       padding: 5px 16px;
       border: 0;
       cursor: pointer;
-      border-radius: 14px;
+      border-radius: var(--radius-2xl);
       text-align: center;
       color: white;
       background: #464e4e;
@@ -1795,10 +2049,12 @@ pre {
     position: absolute;
     inset: 0 0 auto 0;
     margin: auto;
-    border-radius: 10px;
-    background-image: linear-gradient(to bottom,
-        rgba(0, 0, 0, 0.8),
-        rgba(0, 0, 0, 0.08));
+    border-radius: var(--radius-lg);
+    background-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.8),
+      rgba(0, 0, 0, 0.08)
+    );
 
     button {
       margin-top: 3em;
@@ -1821,7 +2077,7 @@ pre {
 
 .error {
   width: 80%;
-  border-radius: 20px;
+  border-radius: var(--radius-4xl);
   border: var(--border-in-light);
   box-shadow: var(--card-shadow);
   padding: 20px;
@@ -1868,7 +2124,7 @@ pre {
   justify-content: center;
   border: var(--border-in-light);
   box-shadow: var(--card-shadow);
-  border-radius: 11px;
+  border-radius: var(--radius-xl);
 }
 
 .user-avatar-me {
@@ -1893,12 +2149,12 @@ pre {
   --selector-control-shadow: none;
   --selector-control-hover-shadow: none;
   --selector-control-focus-shadow: none;
-  --selector-control-hover-border-color: color-mix(in srgb,
-      var(--primary) 56%,
-      transparent);
+  --selector-control-hover-border-color: color-mix(
+    in srgb,
+    var(--primary) 56%,
+    transparent
+  );
   --selector-control-focus-border-color: var(--primary);
-  --model-selector-dark-border: var(--model-selector-border-color);
-  --model-selector-dark-selected-bg: var(--model-selector-selected-bg);
   --nextchat-menu-option-border-color: var(--model-selector-border-color);
   --nextchat-menu-option-background: var(--model-selector-list-bg);
   --nextchat-menu-option-hover-border-color: var(--primary);
@@ -1925,16 +2181,13 @@ html:not(.light):not(.light *) .prompt-picker-panel {
   --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) .model-selector-panel {
-    --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
-    --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
-  }
-
-  :root:not(.light) .prompt-picker-panel {
-    --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
-    --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
-  }
+/* 暗色主题下的选择面板选中/悬停底色；不再依赖系统配色，保证同一主题在任何系统设置下一致。 */
+html.dark:not([data-draw-theme="light"]) .model-selector-panel,
+html.dark:not([data-draw-theme="light"]) .prompt-picker-panel,
+html[data-draw-theme="dark"] .model-selector-panel,
+html[data-draw-theme="dark"] .prompt-picker-panel {
+  --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
+  --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
 }
 
 /* 与提示词选择面板保持相同的桌面端顶边和安全留白。 */
@@ -1952,7 +2205,7 @@ html:not(.light):not(.light *) .prompt-picker-panel {
   max-height: 78vh !important;
   gap: 16px !important;
   padding: 24px !important;
-  border-radius: 24px !important;
+  border-radius: var(--radius-5xl) !important;
   border: 1px solid var(--model-selector-panel-border) !important;
   background: var(--model-selector-panel-bg) !important;
   backdrop-filter: blur(20px) !important;
@@ -1999,7 +2252,7 @@ html:not(.light):not(.light *) .prompt-picker-panel {
   height: 40px !important;
   min-height: 40px !important;
   padding: 0 16px !important;
-  border-radius: 14px !important;
+  border-radius: var(--radius-2xl) !important;
   font-size: 15px !important;
   font-weight: 600 !important;
   text-align: center !important;
@@ -2018,28 +2271,32 @@ html:not(.light):not(.light *) .prompt-picker-panel {
   min-height: 40px !important;
   max-height: 40px !important;
   padding: 8px 16px !important;
-  border-radius: 14px !important;
+  border-radius: var(--radius-2xl) !important;
   font-size: 14px !important;
   font-weight: 600 !important;
   letter-spacing: 0.01em !important;
 }
 
-.model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
+.model-selector-panel
+  .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
   background-color: color-mix(in srgb, var(--white) 94%, #000) !important;
   box-shadow: var(--card-shadow) !important;
 }
 
-body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
+body.dark
+  .model-selector-panel
+  .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
   background-color: var(--hover-color) !important;
 }
 
 .model-selector-panel .nextchat-selector-menu,
 .model-selector-panel .model-selector-provider-menu {
-  border-radius: 18px !important;
+  border-radius: var(--radius-4xl) !important;
   background: var(--model-selector-list-bg) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
-  border: var(--selector-control-border-width, 1px) solid var(--selector-control-border-color, var(--model-selector-border-color)) !important;
+  border: var(--selector-control-border-width, 1px) solid
+    var(--selector-control-border-color, var(--model-selector-border-color)) !important;
   box-shadow:
     0 12px 28px -8px color-mix(in srgb, var(--black) 12%, transparent),
     inset 0 1px 1px color-mix(in srgb, var(--white) 50%, transparent) !important;
@@ -2050,7 +2307,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   height: min(58vh, 520px) !important;
   max-height: min(58vh, 520px) !important;
   border: var(--border-in-light) !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-lg) !important;
   box-shadow: var(--card-shadow) !important;
   background: var(--white) !important;
   padding: 0 !important;
@@ -2094,7 +2351,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   border-bottom: var(--border-in-light) !important;
   margin: 0 !important;
   border-radius: 0 !important;
-  transition: background-color 0.15s ease !important;
+  transition: background-color var(--duration-fast) ease !important;
 }
 
 .model-selector-panel .nextchat-selector-list-item .nextchat-list-icon {
@@ -2114,14 +2371,16 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   line-height: 1.45;
   color: var(--black) !important;
 
-  >div {
+  > div {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
 
-.model-selector-panel .nextchat-selector-list-item .nextchat-list-item-sub-title {
+.model-selector-panel
+  .nextchat-selector-list-item
+  .nextchat-list-item-sub-title {
   font-size: 12px !important;
   font-weight: normal !important;
   line-height: 1.5;
@@ -2140,16 +2399,22 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   box-shadow: none !important;
 }
 
-.model-selector-panel .nextchat-selector-list-item:hover .nextchat-list-item-title,
-.model-selector-panel .nextchat-selector-list-item:focus-within .nextchat-list-item-title,
-.model-selector-panel .nextchat-selector-list-item-active .nextchat-list-item-title {
+.model-selector-panel
+  .nextchat-selector-list-item:hover
+  .nextchat-list-item-title,
+.model-selector-panel
+  .nextchat-selector-list-item:focus-within
+  .nextchat-list-item-title,
+.model-selector-panel
+  .nextchat-selector-list-item-active
+  .nextchat-list-item-title {
   color: var(--primary) !important;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
 }
 
-.model-selector-panel .nextchat-list-item-title>div {
+.model-selector-panel .nextchat-list-item-title > div {
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -2189,7 +2454,10 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   stroke: currentColor !important;
 }
 
-.model-selector-panel #selector-list .nextchat-model-selector-selected-check path {
+.model-selector-panel
+  #selector-list
+  .nextchat-model-selector-selected-check
+  path {
   fill: none !important;
   stroke: var(--primary) !important;
   stroke-width: 2.4px !important;
@@ -2246,15 +2514,17 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   align-items: center;
   min-height: 30px;
   box-sizing: border-box;
-  border-radius: 999px;
-  border: 2px solid var(--selector-control-border-color, var(--input-control-border-color));
+  border-radius: var(--radius-pill);
+  border: 2px solid
+    var(--selector-control-border-color, var(--input-control-border-color));
   background: var(--white) !important;
   color: var(--primary);
-  font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
-    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  font-family:
+    "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons", "PingFang SC",
+    "Helvetica Neue", "Helvetica", "Arial", sans-serif;
   font-weight: 600;
   box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all var(--duration-base) cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .model-selector-hint-provider-button {
@@ -2285,19 +2555,19 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   transform: rotate(180deg);
 }
 
-.nextchat-selector-group-filter>svg:last-child,
-.nextchat-selector-group-filter>svg:last-child path {
+.nextchat-selector-group-filter > svg:last-child,
+.nextchat-selector-group-filter > svg:last-child path {
   stroke: currentColor !important;
 }
 
-.nextchat-selector-group-filter-open>svg:last-child {
+.nextchat-selector-group-filter-open > svg:last-child {
   transform: rotate(180deg);
 }
 
 .model-selector-provider-menu {
   display: grid;
   position: relative;
-  z-index: 99999999999999;
+  z-index: var(--z-top);
   pointer-events: auto;
   flex-basis: 100%;
   width: 100%;
@@ -2306,7 +2576,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   padding: 12px;
-  border-radius: 20px;
+  border-radius: var(--radius-4xl);
 }
 
 .model-selector-provider-empty {
@@ -2319,7 +2589,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 
 .model-selector-provider-menu .model-selector-provider-option {
   position: relative;
-  z-index: 99999999999999;
+  z-index: var(--z-top);
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -2333,7 +2603,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   font-size: 14px;
 
   &[data-show-full-label="true"] {
-    z-index: 100000000000000;
+    z-index: var(--z-top-above);
 
     &::after {
       content: attr(data-full-label);
@@ -2351,7 +2621,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
       pointer-events: none;
       background: var(--white);
       border: 1px solid var(--border-in-light);
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       box-shadow: 0 8px 20px color-mix(in srgb, var(--black) 14%, transparent);
     }
   }
@@ -2414,7 +2684,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   margin: 0 4px;
 }
 
-.model-selector-provider-option-leading>.no-dark {
+.model-selector-provider-option-leading > .no-dark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2427,12 +2697,14 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   line-height: 0;
 }
 
-.model-selector-provider-option-leading>.no-dark>svg {
+.model-selector-provider-option-leading > .no-dark > svg {
   display: block;
   flex: 0 0 auto;
 }
 
-.model-selector-provider-option-leading>.no-dark>.model-selector-provider-default-icon {
+.model-selector-provider-option-leading
+  > .no-dark
+  > .model-selector-provider-default-icon {
   display: block !important;
   width: 30px !important;
   height: 30px !important;
@@ -2449,7 +2721,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   overflow: hidden;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--black) 8%, transparent) !important;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--white);
   box-shadow: 0 2px 4px color-mix(in srgb, var(--black) 4%, transparent) !important;
 }
@@ -2503,15 +2775,16 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 }
 
 .model-selector-panel [data-selector-empty="true"] {
-  border: var(--selector-control-border-width, 1px) solid var(--selector-control-border-color, var(--input-control-border-color)) !important;
+  border: var(--selector-control-border-width, 1px) solid
+    var(--selector-control-border-color, var(--input-control-border-color)) !important;
   background: var(--white) !important;
   color: var(--black) !important;
   box-shadow: none !important;
   opacity: 0.68 !important;
 }
 
-
-.model-selector-panel .nextchat-selector-group:not(.nextchat-selector-virtual-row) {
+.model-selector-panel
+  .nextchat-selector-group:not(.nextchat-selector-virtual-row) {
   position: sticky !important;
   top: 0 !important;
   z-index: 10 !important;
@@ -2531,7 +2804,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 
 /* 虚拟化时独立标题层覆盖当前真实分组行，并用负边距抵消自身占位。
    这样滚动时不会在标题出现/消失的临界点改写列表高度而闪烁。 */
-.model-selector-panel #selector-list>.nextchat-selector-sticky-header {
+.model-selector-panel #selector-list > .nextchat-selector-sticky-header {
   position: sticky !important;
   top: 0 !important;
   z-index: 20 !important;
@@ -2539,19 +2812,27 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   box-sizing: border-box !important;
   background: var(--model-selector-group-bg) !important;
   border-bottom-color: var(--model-selector-border-color) !important;
-  margin-bottom: calc(0px - var(--selector-virtual-group-height, 48px)) !important;
+  margin-bottom: calc(
+    0px - var(--selector-virtual-group-height, 48px)
+  ) !important;
 }
 
-.model-selector-panel #selector-list>.nextchat-selector-sticky-header .nextchat-selector-sticky-header-label {
+.model-selector-panel
+  #selector-list
+  > .nextchat-selector-sticky-header
+  .nextchat-selector-sticky-header-label {
   color: var(--black) !important;
 }
 
-.model-selector-panel #selector-list>.nextchat-selector-sticky-header .nextchat-selector-sticky-header-count {
+.model-selector-panel
+  #selector-list
+  > .nextchat-selector-sticky-header
+  .nextchat-selector-sticky-header-count {
   background: var(--model-selector-count-bg) !important;
   border-color: var(--model-selector-border-color) !important;
 }
 
-.model-selector-panel .nextchat-selector-group+.nextchat-selector-list-item {
+.model-selector-panel .nextchat-selector-group + .nextchat-selector-list-item {
   margin-top: -1px !important;
 }
 
@@ -2569,7 +2850,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   background: var(--gray) !important;
   color: var(--black) !important;
   border: var(--border-in-light) !important;
-  border-radius: 999px !important;
+  border-radius: var(--radius-pill) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
 }
@@ -2609,7 +2890,9 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 
 /* 已选中的模型保持选中态背景，hover / focus 不切换为普通悬浮色。 */
 .model-selector-panel #selector-list .nextchat-selector-list-item-active:hover,
-.model-selector-panel #selector-list .nextchat-selector-list-item-active:focus-within {
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item-active:focus-within {
   background: var(--model-selector-selected-bg) !important;
 }
 
@@ -2642,7 +2925,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     max-height: 75vh !important;
     gap: 10px !important;
     padding: 16px !important;
-    border-radius: 20px !important;
+    border-radius: var(--radius-4xl) !important;
     margin: auto !important; /* 双向居中 */
   }
 
@@ -2652,7 +2935,9 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   }
 
   /* 增加选择器层级 specificity 到 030 以确保在移动端完美覆盖 CSS Modules 规则，避免被 flex-basis/padding/height 等 34px 限制覆盖 */
-  .model-selector-panel .nextchat-selector-content .nextchat-selector-search-surface {
+  .model-selector-panel
+    .nextchat-selector-content
+    .nextchat-selector-search-surface {
     height: 38px !important;
     min-height: 38px !important;
     max-height: 38px !important;
@@ -2660,21 +2945,25 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
   }
 
-  .model-selector-panel .nextchat-selector-content .nextchat-selector-group-filter {
+  .model-selector-panel
+    .nextchat-selector-content
+    .nextchat-selector-group-filter {
     height: 38px !important;
     min-height: 38px !important;
     max-height: 38px !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
   }
 
-  .model-selector-panel .nextchat-selector-content .nextchat-selector-search-input {
+  .model-selector-panel
+    .nextchat-selector-content
+    .nextchat-selector-search-input {
     height: 38px !important;
     min-height: 38px !important;
     padding: 0 12px !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     font-size: 16px !important; /* 避免 iOS Safari 在聚焦输入框时自动放大页面 */
   }
 
@@ -2712,7 +3001,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     min-height: 38px !important;
     max-height: 38px !important;
     padding: 0 40px 0 14px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     font-size: 15px;
   }
 
@@ -2725,14 +3014,14 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     text-align: center;
   }
 
-  .model-selector-hint-provider-button>svg:last-child {
+  .model-selector-hint-provider-button > svg:last-child {
     position: absolute;
     top: 50%;
     right: 12px;
     transform: translateY(-50%);
   }
 
-  .model-selector-provider-open>svg:last-child {
+  .model-selector-provider-open > svg:last-child {
     transform: translateY(-50%) rotate(180deg);
   }
 
@@ -2746,7 +3035,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     gap: 8px;
     margin-top: 0;
     padding: 8px;
-    border-radius: 14px;
+    border-radius: var(--radius-2xl);
   }
 
   .model-selector-provider-option {
@@ -2756,7 +3045,7 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     min-height: 44px;
     max-height: 44px;
     padding: 0 28px 0 8px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     font-size: 14px;
     gap: 0;
   }
@@ -2774,10 +3063,10 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     height: 28px;
     min-width: 28px;
     min-height: 28px;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
-  .model-selector-provider-option-leading>.no-dark {
+  .model-selector-provider-option-leading > .no-dark {
     width: 28px;
     height: 28px;
     min-width: 28px;
@@ -2785,7 +3074,9 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
     flex-basis: 28px;
   }
 
-  .model-selector-provider-option-leading>.no-dark>.model-selector-provider-default-icon {
+  .model-selector-provider-option-leading
+    > .no-dark
+    > .model-selector-provider-default-icon {
     width: 28px !important;
     height: 28px !important;
     min-width: 28px !important;
@@ -2808,16 +3099,22 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 
 /* Selector hover 状态保留颜色和边框反馈，但公共无动效类统一关闭
    按钮、输入、菜单项、模型项及其图标文字的过渡和位移动画。 */
-.nextchat-selector.nextchat-no-hover-motion :is(button,
-  button *,
-  input,
-  .nextchat-selector-list-item,
-  .nextchat-selector-list-item *) {
+.nextchat-selector.nextchat-no-hover-motion
+  :is(
+    button,
+    button *,
+    input,
+    .nextchat-selector-list-item,
+    .nextchat-selector-list-item *
+  ) {
   transition: none !important;
   animation: none !important;
 }
 
-.nextchat-selector.nextchat-no-hover-motion :is(button, input, .nextchat-selector-list-item):not(.nextchat-selector-item-action) {
+.nextchat-selector.nextchat-no-hover-motion
+  :is(button, input, .nextchat-selector-list-item):not(
+    .nextchat-selector-item-action
+  ) {
   transform: none !important;
 }
 
@@ -2827,9 +3124,12 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
 .nextchat-no-hover-motion.nextchat-selector-item-action:focus,
 .nextchat-no-hover-motion.nextchat-selector-item-action:active,
 .nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action,
-.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:hover,
-.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:focus,
-.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:active {
+.nextchat-selector.nextchat-no-hover-motion
+  .nextchat-selector-item-action:hover,
+.nextchat-selector.nextchat-no-hover-motion
+  .nextchat-selector-item-action:focus,
+.nextchat-selector.nextchat-no-hover-motion
+  .nextchat-selector-item-action:active {
   transform: translateY(-50%) !important;
 }
 
@@ -2853,7 +3153,7 @@ button.nextchat-pill-button {
   flex: 0 0 auto !important;
   padding: 0 12px !important;
   box-sizing: border-box !important;
-  border-radius: 999px !important;
+  border-radius: var(--radius-pill) !important;
   cursor: pointer;
   font-family: inherit;
   font-size: 14px !important;
@@ -2905,7 +3205,7 @@ button.nextchat-pill-button {
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  border-radius: 18px;
+  border-radius: var(--radius-4xl);
   border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
   background: color-mix(in srgb, var(--white) 92%, transparent);
   box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 10%, transparent);
@@ -2922,8 +3222,11 @@ button.nextchat-pill-button {
   opacity: 0;
 }
 
-.model-selector-panel :is(.nextchat-selector-search-input,
-  .model-selector-custom-input)::placeholder {
+.model-selector-panel
+  :is(
+    .nextchat-selector-search-input,
+    .model-selector-custom-input
+  )::placeholder {
   color: var(--sidebar-search-placeholder) !important;
   opacity: 1;
   font-family: inherit;
@@ -2944,7 +3247,7 @@ button.nextchat-pill-button {
   height: 40px !important;
   min-height: 40px !important;
   padding: 0 16px !important;
-  border-radius: 14px !important;
+  border-radius: var(--radius-2xl) !important;
   font-size: 15px !important;
   font-weight: 600 !important;
   text-align: center !important;
@@ -2972,45 +3275,35 @@ button.nextchat-pill-button {
   height: 30px;
   padding: 0 14px;
   box-sizing: border-box;
-  border-radius: 999px;
-  border: 2px solid var(--selector-control-border-color, var(--input-control-border-color));
+  border-radius: var(--radius-pill);
+  border: 2px solid
+    var(--selector-control-border-color, var(--input-control-border-color));
   background: var(--white) !important;
   color: var(--primary);
-  font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
-    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  font-family:
+    "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons", "PingFang SC",
+    "Helvetica Neue", "Helvetica", "Arial", sans-serif;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all var(--duration-base) cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 自定义输入卡在暗色主题下保持卡片悬浮感。 */
-:global(body.dark) .nextchat-modal-custom-popover {
+body.dark .nextchat-modal-custom-popover {
   background: color-mix(in srgb, var(--primary) 6%, var(--white));
 }
 
-:global(body.dark) .nextchat-modal-custom-form {
+body.dark .nextchat-modal-custom-form {
   border-color: var(--border-in-light);
   background: color-mix(in srgb, var(--white) 92%, transparent);
   box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 14%, transparent);
 }
 
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .nextchat-modal-custom-popover {
-    background: color-mix(in srgb, var(--primary) 6%, var(--white));
-  }
-
-  :global(body:not(.light):not(.dark)) .nextchat-modal-custom-form {
-    border-color: var(--border-in-light);
-    background: color-mix(in srgb, var(--white) 92%, transparent);
-    box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 14%, transparent);
-  }
-}
-
 /* 移动端 footer / 自定义输入行改为纵向堆叠 + 100% 宽度输入。 */
 @media only screen and (max-width: 650px),
-only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .nextchat-modal-footer {
     align-items: stretch;
     flex-direction: column;
@@ -3091,7 +3384,7 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   padding: 8px 12px 8px 8px;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--black) 24%, transparent);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--white);
   box-shadow: none;
   cursor: pointer;
@@ -3118,7 +3411,7 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   width: 46px;
   height: 46px;
   flex: 0 0 46px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: #3b82f6;
   color: #fff;
   overflow: hidden;
@@ -3129,17 +3422,23 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   box-sizing: border-box;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-document .attach-file-glyph,
+.markdown-body
+  .chat-message-attached-file.attach-file-document
+  .attach-file-glyph,
 .markdown-body .chat-message-attached-file.attach-file-file .attach-file-glyph {
   width: 17px;
   height: 22px;
   border: 2px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: transparent;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-document .attach-file-glyph::before,
-.markdown-body .chat-message-attached-file.attach-file-file .attach-file-glyph::before {
+.markdown-body
+  .chat-message-attached-file.attach-file-document
+  .attach-file-glyph::before,
+.markdown-body
+  .chat-message-attached-file.attach-file-file
+  .attach-file-glyph::before {
   content: "";
   position: absolute;
   top: 5px;
@@ -3156,26 +3455,36 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   background: #ef4444;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-icon {
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-icon {
   background: #34a853;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph {
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-glyph {
   width: 22px;
   height: 22px;
   border: 2px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: transparent;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::before,
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::after {
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-glyph::before,
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-glyph::after {
   content: "";
   position: absolute;
   background: currentColor;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::before {
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-glyph::before {
   top: 4px;
   left: 3px;
   right: 3px;
@@ -3185,7 +3494,9 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     0 10px 0 currentColor;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::after {
+.markdown-body
+  .chat-message-attached-file.attach-file-spreadsheet
+  .attach-file-glyph::after {
   top: 3px;
   bottom: 3px;
   left: 50%;
@@ -3193,19 +3504,25 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   transform: translateX(-50%);
 }
 
-.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-icon {
+.markdown-body
+  .chat-message-attached-file.attach-file-archive
+  .attach-file-icon {
   background: #f59e0b;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-glyph {
+.markdown-body
+  .chat-message-attached-file.attach-file-archive
+  .attach-file-glyph {
   width: 22px;
   height: 18px;
   border: 2px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: transparent;
 }
 
-.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-glyph::before {
+.markdown-body
+  .chat-message-attached-file.attach-file-archive
+  .attach-file-glyph::before {
   content: "";
   position: absolute;
   top: 5px;
@@ -3250,8 +3567,7 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   text-align: left;
 }
 
-body.dark .markdown-body .chat-message-attached-file,
-.dark .markdown-body .chat-message-attached-file {
+body.dark .markdown-body .chat-message-attached-file {
   background: var(--white);
   color: var(--black);
   border-color: color-mix(in srgb, var(--black) 24%, transparent);

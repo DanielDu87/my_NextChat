@@ -4,7 +4,7 @@
   gap: 8px;
   min-width: 0;
   padding: 6px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   border: var(--border-in-light);
   background: var(--white);
   cursor: pointer;
@@ -67,13 +67,13 @@
 }
 
 .chatFloatingVersion {
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
 }
 
 .avatar {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -96,7 +96,7 @@
 
 .sub {
   font-size: 11px;
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
 }
 
 .menu {
@@ -107,17 +107,17 @@
 .status {
   margin: 0 0 8px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--primary) 10%, white);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--black-alpha-80);
+  color: var(--text-secondary);
 }
 
 .versionInfo {
   margin: 0 0 12px;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--primary) 6%, white);
   display: flex;
   flex-direction: row;
@@ -133,20 +133,15 @@
 }
 
 .versionLabel {
-  color: var(--black-alpha-70);
+  color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
 }
 
 .versionValue {
-  color: var(--black-alpha-90);
+  color: var(--text-secondary);
   font-weight: 600;
   white-space: nowrap;
-}
-
-.readonly {
-  margin-top: 8px;
-  color: #b54708;
 }
 
 .manageModal .manageList {
@@ -183,7 +178,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: var(--black-alpha-80);
+  color: var(--text-secondary);
   gap: 10px;
   font-size: 16px;
 }
@@ -197,7 +192,7 @@
 .loadingDots i {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--primary) 78%, white);
   animation: user-menu-loading-bounce 1s ease-in-out infinite;
 }
@@ -303,7 +298,7 @@
   min-width: 0;
   height: 40px;
   padding: 0 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: var(--border-in-light);
   background: var(--white);
   color: var(--black);
@@ -313,32 +308,6 @@
 
 .createInput:focus {
   border: 2px solid var(--primary);
-}
-
-.adminCheck {
-  flex-shrink: 0;
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: var(--border-in-light);
-  background: var(--white);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.adminCheck input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-}
-
-.adminCheckText {
-  color: var(--black-alpha-80);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 .manageModal :global(.list-item) {
@@ -352,13 +321,13 @@
   margin-bottom: 8px;
   display: block;
   border: var(--border-in-light) !important;
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   background: var(--white);
   box-shadow: none;
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
-  transition: background-color 0.18s ease;
+  transition: background-color var(--duration-base) ease;
 }
 
 .manageList .manageListItem:hover {
@@ -384,19 +353,6 @@
   border-color: color-mix(in srgb, var(--primary) 38%, transparent) !important;
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--primary) 38%, transparent) !important;
-}
-
-.switchUserInfo {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--black-alpha-80);
-  margin-bottom: 12px;
-  text-align: center;
-}
-
-.switchUserInfo strong {
-  color: var(--primary);
-  font-weight: 700;
 }
 
 .manageListItem :global(.list-header) {
@@ -439,7 +395,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--primary) 14%, var(--white));
   color: var(--primary);
   font-size: 14px;
@@ -465,7 +421,7 @@
   align-items: center;
   gap: 6px;
   margin-top: 3px;
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
   font-size: 10px;
   line-height: 1.3;
 }
@@ -522,7 +478,7 @@
 .userInfoLabel {
   font-size: 11px;
   line-height: 1.3;
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
 }
 
 .userInfoValue {
@@ -546,7 +502,7 @@
   right: 20px;
   transform: translateY(-50%);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
   background: var(--primary);
   color: #ffffff;
@@ -555,7 +511,7 @@
   z-index: 2;
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 650px) {
   .manageModal.manageModal {
     width: calc(100vw - 16px);
     max-width: 420px;
@@ -678,7 +634,7 @@
     width: 32px;
     height: 32px;
     flex-basis: 32px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
   }
 
   .userDetails {
@@ -705,7 +661,7 @@
     align-self: center;
     font-size: 10px;
     padding: 1px 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     z-index: 3;
     pointer-events: none;
   }
@@ -770,7 +726,6 @@
   }
 }
 
-:global(.dark) .manageModal,
 :global(body.dark) .manageModal {
   .versionInfo {
     background: rgba(59, 130, 246, 0.12);
@@ -817,56 +772,5 @@
 
   .userAvatar {
     background: rgba(59, 130, 246, 0.2);
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .manageModal {
-    .versionInfo {
-      background: rgba(59, 130, 246, 0.12);
-    }
-
-    .versionLabel {
-      color: rgba(203, 213, 225, 0.85);
-    }
-
-    .versionValue {
-      color: rgba(226, 232, 240, 0.95);
-    }
-
-    .manageListItem,
-    .manageList .manageListItem:last-child {
-      border-color: rgba(100, 116, 139, 0.4);
-      background: rgba(51, 65, 85, 0.5);
-    }
-
-    .manageListItem:hover {
-      background: rgba(59, 130, 246, 0.18);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.5);
-    }
-
-    .manageList .manageListItem.manageListItemActive {
-      background: rgba(59, 130, 246, 0.22) !important;
-      border-color: rgba(96, 165, 250, 0.62) !important;
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.62) !important;
-    }
-
-    .manageList .manageListItem.manageListItemActive:hover {
-      background: rgba(59, 130, 246, 0.22) !important;
-      border-color: rgba(96, 165, 250, 0.62) !important;
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.62) !important;
-    }
-
-    .userInfoLabel {
-      color: rgba(203, 213, 225, 0.82);
-    }
-
-    .userInfoValue {
-      color: rgba(226, 232, 240, 0.92);
-    }
-
-    .userAvatar {
-      background: rgba(59, 130, 246, 0.2);
-    }
   }
 }

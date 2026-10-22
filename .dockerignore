@@ -117,3 +117,15 @@ LICENSE
 # Test-only config
 jest.config.ts
 jest.setup.ts
+
+# AI coding agents configs, plans and debug artifacts
+.agents
+.cursor
+.claude
+.gemini
+.system_generated
+.zcode
+.dbg
+.handoff-backups
+HANDOFF.md
+AGENTS.md

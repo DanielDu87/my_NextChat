@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "@/app/config/server";
+import { AuthError, requireAuthContext } from "@/app/utils/server/auth";
 import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 import http from "node:http";
 import https from "node:https";
@@ -8,7 +9,31 @@ import fs from "node:fs";
 // 进程内缓存：用户配置的 baseURL -> 自动适配后实际可用的 baseURL。
 // 例如把 https://openrouter.ai 自适应成 https://openrouter.ai/api/v1。
 // 仅在响应被识别为 text/html 时才会写入；命中后下次同 baseURL 直接走适配后的地址。
-const globalBaseUrlAdaptCache = new Map<string, string>();
+// key 来自客户端 header，需限制条目数，避免被任意 baseURL 撑满内存。
+// 同时记录命中时是否剥掉了 path 中的 v1/ 等前缀，缓存命中时必须按同样方式改写 path。
+type AdaptedBaseUrl = { baseUrl: string; stripSubpath: boolean };
+const globalBaseUrlAdaptCache = new Map<string, AdaptedBaseUrl>();
+const BASE_URL_ADAPT_CACHE_LIMIT = 200;
+
+function rememberAdaptedBaseUrl(original: string, adapted: AdaptedBaseUrl) {
+  globalBaseUrlAdaptCache.delete(original);
+  if (globalBaseUrlAdaptCache.size >= BASE_URL_ADAPT_CACHE_LIMIT) {
+    const oldestKey = globalBaseUrlAdaptCache.keys().next().value;
+    if (oldestKey !== undefined) globalBaseUrlAdaptCache.delete(oldestKey);
+  }
+  globalBaseUrlAdaptCache.set(original, adapted);
+}
+
+// 本地模型、Code Interpreter 等功能依赖 localhost / 内网地址，不能整体拦截私网；
+// 但链路本地段（169.254.0.0/16、fe80::/10）只承载云厂商元数据服务，没有业务用途。
+function isBlockedProxyHostname(hostname: string) {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    /^169\.254\./.test(host) ||
+    /^fe[89ab][0-9a-f]:/.test(host) ||
+    host === "metadata.google.internal"
+  );
+}
 
 function looksLikeHtmlResponse(res: Response) {
   const contentType = String(
@@ -17,16 +42,20 @@ function looksLikeHtmlResponse(res: Response) {
   return contentType.includes("text/html");
 }
 
+// path 中可能含 v1/、api/、api/v1/ 前缀，适配时把这段挪到 baseURL 上
+function stripApiPrefixFromSubpath(subpath: string) {
+  return subpath
+    .replace(/^v1\//, "")
+    .replace(/^api\/v1\//, "")
+    .replace(/^api\//, "");
+}
+
 function buildBaseUrlCandidates(
   baseUrl: string,
   subpath: string,
 ): Array<{ baseUrl: string; subpath: string; reason: string }> {
   const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
-  // path 中可能含 v1/、api/、api/v1/ 前缀，适配时把这段挪到 baseURL 上
-  const strippedSubpath = subpath
-    .replace(/^v1\//, "")
-    .replace(/^api\/v1\//, "")
-    .replace(/^api\//, "");
+  const strippedSubpath = stripApiPrefixFromSubpath(subpath);
 
   const candidates: Array<{
     baseUrl: string;
@@ -248,7 +277,7 @@ async function fetchWithBaseUrlAdaptation(opts: {
     if (shouldUseNative) {
       return nativeRequest(normalized, req.method, headers);
     }
-    return fetch(normalized, { ...fetchOptions, signal: req.signal });
+    return fetch(normalized, fetchOptions);
   };
 
   const consumeBody = async (res: Response) => {
@@ -261,13 +290,18 @@ async function fetchWithBaseUrlAdaptation(opts: {
 
   // 0. 命中缓存：上次已成功适配过该 baseURL，直接走适配后的地址
   const cachedAdapted = globalBaseUrlAdaptCache.get(baseUrl);
-  if (cachedAdapted && cachedAdapted !== baseUrl) {
+  if (cachedAdapted && cachedAdapted.baseUrl !== baseUrl) {
     try {
-      const cachedRes = await doFetch(buildUrl(cachedAdapted, subpath));
+      const cachedSubpath = cachedAdapted.stripSubpath
+        ? stripApiPrefixFromSubpath(subpath)
+        : subpath;
+      const cachedRes = await doFetch(
+        buildUrl(cachedAdapted.baseUrl, cachedSubpath),
+      );
       if (!looksLikeHtmlResponse(cachedRes)) {
         return {
           response: cachedRes,
-          resolvedBaseUrl: cachedAdapted,
+          resolvedBaseUrl: cachedAdapted.baseUrl,
           adapted: true,
         };
       }
@@ -316,7 +350,10 @@ async function fetchWithBaseUrlAdaptation(opts: {
           status: candidateRes.status,
           contentType: candidateRes.headers.get("content-type") || "",
         });
-        globalBaseUrlAdaptCache.set(baseUrl, candidate.baseUrl);
+        rememberAdaptedBaseUrl(baseUrl, {
+          baseUrl: candidate.baseUrl,
+          stripSubpath: candidate.subpath !== subpath,
+        });
         return {
           response: candidateRes,
           resolvedBaseUrl: candidate.baseUrl,
@@ -371,6 +408,20 @@ export async function handle(
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
+
+  // 通用代理会以服务端身份请求任意 baseURL，必须登录后才能使用。
+  try {
+    await requireAuthContext(req);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
+    return NextResponse.json(
+      {
+        error: status === 500 ? "auth_check_failed" : "unauthorized",
+      },
+      { status },
+    );
+  }
+
   const serverConfig = getServerSideConfig();
 
   // remove path params from searchParams
@@ -380,6 +431,26 @@ export async function handle(
   const subpath = params.path.join("/");
   const baseUrl = req.headers.get("x-base-url");
   const normalizedBaseUrl = baseUrl?.replace(/\/+$/, "");
+
+  let baseUrlHostname = "";
+  try {
+    const parsedBaseUrl = new URL(normalizedBaseUrl || "");
+    if (!["http:", "https:"].includes(parsedBaseUrl.protocol)) {
+      throw new Error("unsupported_protocol");
+    }
+    baseUrlHostname = parsedBaseUrl.hostname.toLowerCase();
+  } catch {
+    return NextResponse.json(
+      { error: "proxy_invalid_base_url" },
+      { status: 400 },
+    );
+  }
+  if (isBlockedProxyHostname(baseUrlHostname)) {
+    return NextResponse.json(
+      { error: "proxy_base_url_not_allowed" },
+      { status: 403 },
+    );
+  }
 
   // YutoAPI 和 Ocoolai pricing 接口特殊处理
   const isPricingApi =
@@ -442,7 +513,8 @@ export async function handle(
     hasGoogleApiKey: req.headers.has("x-goog-api-key"),
   });
   // if dalle3 use openai api key
-  if (baseUrl?.includes("api.openai.com")) {
+  // 必须精确匹配主机名，子串匹配会把服务端 Key 发给 api.openai.com.attacker.tld 之类的域名。
+  if (baseUrlHostname === "api.openai.com") {
     if (!serverConfig.apiKey) {
       return NextResponse.json(
         { error: "OpenAI API key not configured" },
@@ -460,13 +532,13 @@ export async function handle(
     method: req.method,
     // to fix #2485: https://stackoverflow.com/questions/55920957/cloudflare-worker-typeerror-one-time-use-body
     redirect: "manual",
-    signal: controller.signal,
+    // 客户端断开与 10 分钟超时任一触发都中止上游请求。
+    signal: AbortSignal.any([req.signal, controller.signal]),
   };
 
   if (shouldSendBody) {
-    fetchOptions.body = req.body;
-    // @ts-ignore Node.js/undici 在流式请求体下需要 duplex
-    fetchOptions.duplex = "half";
+    // 先缓冲请求体：baseURL 自适应会对多个候选地址重发同一请求，流式 body 只能被读取一次。
+    fetchOptions.body = await req.arrayBuffer();
   }
 
   const timeoutId = setTimeout(

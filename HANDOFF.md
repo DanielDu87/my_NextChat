@@ -4,6 +4,133 @@
 
 ============================================================
 
+## 243. 【2026-10-22 14:10】- 修复绘图记录被新浏览器覆盖为空、恢复 admin 绘图记录、补生产 pg_dump 备份
+
+### 修改内容
+
+- `app/utils/sync.ts` DrawList 合并改为按记录 id 取三方并集（本地 / 内存 / 远端），`deletedTaskIds` 同样取并集（最多 300 条）并写回，合并结果按 `requestedAt` 倒序；不再因本地 `lastUpdateTime` 较新就整体丢弃远端记录。
+- `app/styles/globals.scss`：暗色模式下危险按钮图标恢复历史灰色（仅危险按钮保留 `invert(0.5)`），`/api_config` 暗色按钮行与优化前像素一致。
+- 经用户确认：`app/components/auth.module.scss`、`tts.module.scss` 移到废纸篓；删除临时容器 `nextchat-login-preview`、`nextchat-baseline` 与卷 `nextchat_preview_node_modules`。
+- 生产服务器新增 root crontab `30 3 * * * /www/backup/database/pgsql/nextchat-pgdump.sh`（`nextchat` + `nextchat_backup`，`pg_dump -Fc` + `pg_restore --list` 校验，权限 600，全部成功才清理 14 天前备份），已手动运行一次：nextchat 150M、nextchat_backup 18M。原 crontab 备份在 `/root/crontab-root.bak-*`。
+- 文档：`docs/development.md` 新增「绘图记录同步合并（DrawList）」；`README_BAOTA.md` 第 12 节写明备份任务与恢复命令。
+
+### 实现方式
+
+- 根因：DrawList 合并策略“`remoteUpdateTime > localUpdateTime` 才用远端”。新浏览器启动阶段任意一次 `markUpdate()` 都会让本地空状态显得更新，结果用本地 0 条覆盖远端；HEAD 既有问题，12:03 第二次覆盖发生在用户新打开的 Edge 标签页。
+- 修复后先刷新 Edge 中的 127.0.0.1:3000 标签页加载新代码，再按上次已确认的方案恢复 admin 的 6 条记录（带版本校验 PUT，只替换 `draw`）。
+- `!important` 批量清理按“基线快照 → 去除 → 计算样式差异 → 归因恢复”迭代尝试，未能收敛（见遗留问题），已逐文件校验只差 `!important` 后完整回退。
+
+### 验证
+
+- 容器内 `npx tsc --noEmit` 通过。
+- 全新浏览器（拦截真实写库、记录上传内容）依次访问桌面 `/chat`、移动端 `/draw`、`/draw/history`：3 次 draw-list 上传均为 6 条，历史页显示 6 条，服务端仍为 6 条。
+- `!important` 回退后 70 个状态计算样式与基线一致（残留差异仅为当前模型名称变化导致的标题宽度和备份列表数据变化，截图核对一致）。
+
+### 潜在或遗留问题
+
+- `!important` 未减少（仍约 2259 处）：自动化尝试中去除 911 处“全部选择器都被测试命中”的候选后，归因恢复迭代 3 轮差异仍在 3.5k–12k 之间浮动（大量规则互相依赖 `!important` 争优先级，单点恢复会暴露新的冲突），且测试覆盖不到下拉菜单、弹窗、禁用、聚焦等状态。需要改为逐组件人工重构（先合并公共类与组件模块的重复声明，再去 `!important`），不适合批量处理。
+- 开着旧代码的浏览器标签页仍可能按旧合并逻辑上传；所有标签页刷新一次后才完全安全。
+
+============================================================
+
+## 242. 【2026-10-22 12:45】- 修复本地获取模型与余额全部网络失败（容器 DNS 阻塞线程池）
+
+### 修改内容
+
+- 新增 `scripts/dev-ipv4-first-dns.cjs`：未指定 family 的 `dns.lookup` 先只查 IPv4，失败回退原始解析。
+- `docker-compose.yml` 的 `nextchat-dev` 增加 `NODE_OPTIONS=--max-old-space-size=4096 --require /app/scripts/dev-ipv4-first-dns.cjs` 与 `UV_THREADPOOL_SIZE=64`；生产服务不变。
+- 文档：`docs/development.md` 新增「本地容器 DNS 与线程池」，CLAUDE.md 开发小节补充说明。
+
+### 实现方式
+
+- 根因：宿主机 Shadowrocket DNS 对 `nexus.itssx.com` 只应答 A 不应答 AAAA，musl `getaddrinfo` 等 AAAA 5s 后整体 `EAI_AGAIN`；Node `dns.lookup` 占用默认 4 线程的 libuv 池，4 个慢解析即让 `postgres-ssh-tunnel` 解析排队 10s，触发 PG 连接超时，连带所有供应商的模型获取 / 余额查询和 `/api/db/health` 超时。独立 Node 进程直连数据库正常，证明不是隧道或数据库问题。
+- 在一次性容器中分别验证：只加大线程池可消除连带超时但 Nexus 仍失败；IPv4 优先解析让 Nexus 7ms 解析成功；两者组合后再接入 compose。
+
+### 验证
+
+- 重建 `nextchat-dev` 后 `/api/db/health` 200（1.1s），日志 0 次 PG 重试。
+- `POST /api/db/provider-balance`：Nexus 返回余额（2.7s，此前 470s 后中止），AGICTO 0.47s。
+- 经 `/api/proxy` 获取模型：Nexus 9、DeepSeek 2、AihubMix 677、AGICTO 224。
+
+### 潜在或遗留问题
+
+- 属本机网络环境问题（代理 DNS 不应答 AAAA），生产未受影响也未修改；若换网络/代理后仍有个别域名解析慢，线程池已不会再被拖垮。
+
+============================================================
+
+## 241. 【2026-10-22 02:22】- 全局样式统一、设计 token 与登录页重新设计
+
+### 修改内容
+
+- `app/styles/globals.scss` 新增设计 token：文字层级 `--text-secondary/muted/placeholder`、`--surface-muted`、`--border-subtle`、`--icon-color`，圆角 / 动效 / z-index 刻度；全部 SCSS 的圆角、过渡时长字面量收敛到 token（离刻度 1-2px 的值就近吸附）。**字体与字号按用户要求已全部恢复为原值**（字体栈、9/10/11/17px 等字面量与 HEAD 编译产物逐选择器一致，`--font-*` 变量已移除）。
+- 修复缺陷：约 60 处未定义 CSS 变量（`--black-alpha-*`、`--black-2`、`--gray-*`、`--bg-color`、`--window-header-height` 等）；按钮配色曾提升到 WCAG AA，**按用户要求已恢复为原配色**（`--primary-button-*`、`--danger-*`、`--backup-green*` 与 HEAD 一致）；`home.tsx` 水合前沿用预加载主题，修复深色用户首屏 dark→light→dark 闪烁；超大 z-index（被浏览器截断成同值）改为有序刻度；移动端断点 600/700px 统一为 650px（与 `MOBILE_MAX_WIDTH` 一致）。
+- 暗色模式只由 `.light/.dark` class 驱动：删除永不命中的 `body:not(.light):not(.dark)` 系统暗色分支、依赖系统配色的 `prefers-color-scheme` 分支和 `.dark`/`body.dark` 重复选择器；`globals.scss` 中失效的 `:global(body.dark)` 规则改为 `body.dark` 后生效；绘画页暗色规则尊重 `data-draw-theme="light"`（修复全局深色 + 绘画浅色时否定提示词框变黑）。
+- 移除暗色全局 `div:not(.no-dark)>svg { filter: invert(0.5) }`；`app/icons` 单色图标 `#333` 改为 `var(--icon-color, #333)`（属性写法由 `:where([stroke="#333"])` 兜底），彩色图标在暗色下保留原色。
+- 键盘焦点环（`:where(button, a, …):focus-visible`）、`prefers-reduced-motion` 兜底、100vh → 100dvh、卡片鼠标光斑只在悬停时出现。
+- 删除 81 个从未被组件引用的 CSS Module 类及其规则（含 mcp-market 旧配置表单、provider-balances attempt*、api-config mobileOnly* 等）；文件预览样式从 `chat.module.scss` 拆到 `app/components/file-preview.module.scss`（`file-preview.tsx`、`hooks/useFilePreview.tsx` 改为引用新模块，`attach-file-*` 仍在 chat.module）。
+- 登录页 `site-password-gate.tsx/.module.scss` 重新设计：左对齐表单 + 字段标签、`autocomplete=username/current-password`、显示/隐藏密码正确的 `aria-label`/`aria-pressed`、大写锁定提示、`role=alert` 错误条、加载 spinner、深浅色适配。
+- 文档：CLAUDE.md「设计 token」小节与关键组件、README 聊天界面文件列表、docs/development.md 文件预览样式位置。
+
+### 实现方式
+
+- 批量改写用一次性脚本（注释感知的 SCSS 块解析）完成：token 吸附、死选择器删除、暗色重复选择器去重、文件预览样式按“选择器只含 file-preview/docx-preview/xlsx-preview 类”拆分；每步后 sass 全量编译 + HEAD 选择器对比兜底。
+- 截图对比用 HEAD 快照容器（3001）与当前热加载容器（3000）；视觉测试脚本在浏览器层拦截 PUT/POST/DELETE（仅放行 `/api/config`、`/api/db/chat-sync/sessions`），避免全新上下文把空状态同步回库。
+
+### 验证
+
+- 34 个 SCSS 文件 sass 编译 0 错误；HEAD 与当前编译产物逐选择器对比，所有删除均可由死类 / 重复 `.dark` / 死暗色分支解释，新增均为预期规则。
+- 容器内 `npx tsc --noEmit` 通过；`next lint` 仅既有 `<img>` 提示；变量引用检查 0 个未定义变量。
+- Playwright（Chrome Beta，拦截全部写请求）截图核对 14 个页面 × 桌面/移动 × 浅/深色，另测模型选择器层级、悬停光斑、键盘焦点、绘画页主题；登录页在开启鉴权的独立预览容器（3002）中截图核对四种状态与错误态。
+- TSX/MD 经 `format.sh`、SCSS 经 prettier 格式化后复核编译与截图无差异。
+
+### 潜在或遗留问题
+
+- 本轮测试早期未拦截写请求，全新浏览器上下文访问移动端 `/draw` 触发既有同步竞态，把 **user:admin**（本地免登录绘画同步落在 admin）的 `user_draw_stores` 覆盖为空（2026-10-21T15:38:50Z）。服务器无 pg_dump 备份，已用 Edge 中 chat.dyxcloud.com 的 IndexedDB 副本（2026-09-29，6 条，与覆盖前截图一致、图片均属 admin）经 `PUT /api/db/sync/draw-list`（带 expected 版本校验）只恢复 `draw` 字段，2026-10-22 已验证页面显示 6 条且图片可加载；恢复前原行备份在 `/tmp/ncaudit/idb/admin_draw_store_before_restore.json`（2026-10-22 经用户确认整个 `/tmp/ncaudit` 已移到废纸篓）。竞态本身（读到远端数据后又写回本地默认状态）未修复；服务器 `/www/backup/database/pgsql` 为空，宝塔 pg_dump 计划任务实际未产出备份，需要补配。
+- `!important`（约 2300 处）未批量移除：组件模块与公共类互相以 `!important` 竞争优先级，静态截图无法覆盖 hover/禁用等全部状态，批量移除需单独排期逐文件回归。
+- `auth.module.scss`、`tts.module.scss` 已经用户确认移到废纸篓；`/settings` 桌面端空白为 HEAD 既有行为，未改。
+- 临时容器 `nextchat-baseline`、`nextchat-login-preview` 已停止未删除，卷 `nextchat_preview_node_modules` 与 `/tmp/ncaudit` 已经用户确认清理（容器/卷已删除，目录移到废纸篓）。
+- 全局 `format.sh` 不识别 `.scss` 扩展名，本次直接用注册表 CSS 族的 prettier 执行。
+
+============================================================
+
+## 240. 【2026-10-22 01:58】- 全面安全审计修复：鉴权、代理、MCP、流式性能与依赖
+
+### 修改内容
+
+- MCP Server Actions（`app/mcp/actions.ts`）每个导出函数校验 `ENABLE_MCP` 与登录态，增删改/暂停/恢复/重启仅管理员（本地免登录放行）；修复未登录即可远程启动任意 stdio 命令的问题。
+- `nextchat_effective_user` 切换用户 cookie 只对管理员会话生效；非法 UUID 不再导致全部接口 500；畸形 cookie 值不再抛错；登录改用异步 scrypt。
+- `/api/proxy` 要求登录，校验 http/https，拒绝 `169.254.0.0/16`、`fe80::/10`、`metadata.google.internal`；服务端 OpenAI Key 仅在主机名精确为 `api.openai.com` 时附带；请求体先缓冲（自适应重试可重发 POST）、合并客户端断开与 10 分钟超时信号、自适应缓存上限 200 并修复命中缓存后 path 多一段 `v1/` 的问题。
+- `/api/[provider]/*`、`/api/tencent`（改为 nodejs runtime）、`/api/model-probe` 要求登录；model-probe 用解析后的 pathname 校验白名单并转发 cookie。
+- 共享 Plugin store 仅管理员可写（403 `admin_only_store`）；插件编辑器内容按纯文本渲染；`file-preview` 图片回退改用 DOM API，消除文件名 XSS。
+- 流式输出期间会话 IndexedDB 落盘节流为 1 秒、结束后立即落盘；侧边栏、`useHotKey` 与聊天页辅助组件改为按需订阅。
+- PG 重试只在连接层错误且池未被他人重建时关闭连接池（主库与备份库）；`GET /api/db/sync/[key]` 降级改返回 503；sync PUT 与 cache upload 先鉴权并按 Content-Length 预检；移除 cache upload 调试埋点；`/api/db/health` 匿名只返回 `ok`；服务端日志不再打印 API Key 明文。
+- `scripts/docker-compose-safe.sh` 解析改在函数内，未识别参数降级原生构建时不再丢失 `-f/--env-file/--profile`。
+- 依赖：`xlsx` 升级为仓库内置 `vendor/xlsx-0.20.3.tgz`（修复 CVE-2023-30533 / CVE-2024-22363）；移除 `@ai-sdk/anthropic`、`node-fetch`、`concurrently`、`watch`、`ts-node`、jest 与 `@testing-library/*`；显式声明 `markdown-to-txt` 实际依赖的 `lodash`。
+- 经用户确认删除死代码 `app/utils/database-state-storage.ts`、`app/api/site-auth/route.ts`、`app/utils/server/site-password.ts`（备份于 `/tmp/nextchat-deleted-backup-20261021232130/`，原文件在废纸篓）；`site_access_settings` 标为遗留表不再创建。
+- `.gitignore` / `.dockerignore` 增加 `.zcode/`、`.dbg/` 等 AI 产物；同步 CLAUDE.md、README.md、README_BAOTA.md、docs/development.md、docs/db schema 文档。
+
+### 实现方式
+
+- 鉴权统一复用 `app/utils/server/auth.ts`：路由用 `requireAuthContext(req)`，模型代理经 `app/api/auth.ts` 新增的 `requireApiSession`，MCP Server Actions 经 `next/headers` 的 `headers()` 取 cookie；管理员判断沿用 switch-user 的「免登录模式放行」约定。
+- 共享 store 写权限在 `sync-user.ts` 的 `requireWritableStoreSyncUserId` 中按 `ADMIN_ONLY_WRITE_STORE_KEYS` 收口，客户端同步按单 key 失败处理，不影响其他 store。
+- 流式节流放在 `chat.ts` 的 `updateTargetSession`：存在 `streaming` 消息时按会话 id 设 1 秒定时器，触发时从 `get().sessions` 读最新会话落盘（用户切换后旧会话不在内存即跳过）。
+- 连接池只在 `shouldResetPoolForError` 为真且 `globalThis` 上的池仍是本次尝试开始时的池时才关闭。
+- lockfile 在一次性 `node:22-alpine` 容器内以 `yarn install --ignore-scripts` 生成，未在宿主机安装依赖。
+
+### 验证
+
+- 宿主机 `npx tsc --noEmit`、`yarn lint` 通过（仅既有 `<img>` 提示）；容器内用新 lockfile 完整 `yarn build` 通过。
+- 容器内启动 standalone 产物（假 PG）实测：匿名访问 proxy / provider / tencent / model-probe / cache upload / sync PUT 均 401，PUT 声明 100MB 时立即返回；MCP 开启时 12 个 action 匿名均被拒，未能创建测试文件；免登录模式下自适应 POST 首次与缓存命中均带完整 body 且 path 正确，元数据地址 403、`file://` 400，仿冒 `api.openai.com` 路径不再注入服务端 Key；日志中无 Key 明文。
+
+### 潜在或遗留问题
+
+- 流式节流与 PG 连接池策略未做浏览器/真实数据库实测；页面关闭发生在流式中途时最多丢失约 1 秒内的流式内容。
+- 宿主机 `node_modules` 未重装（仍是旧 xlsx），本地 dev 容器需按 CLAUDE.md 重新 `build` 才会使用新依赖。
+- 普通用户在 `/plugins` 修改插件会同步失败（403），属预期；Access/Config 共享 store 仍对所有登录用户可读写（用户选择保持现状）。
+- 另一会话报告：全新浏览器上下文打开移动端 `/draw` 会把远端 draw-list 覆盖为空（HEAD 既有竞态），ccc 的绘画历史已被覆盖，尚未修复。
+
+============================================================
+
 ## 239. 【2026-08-11 14:01】- 收敛供应商保存操作并新增对话测试
 
 - 删除模型获取分区内“当前模型 / 模型专用 Key”提示，仅保留模型获取状态。
@@ -171,401 +298,5 @@
 ### 潜在或遗留问题
 
 - 无已知代码遗留问题；待 webview 可用后，需在 393×852 视口确认两个页面的标题说明位于全宽按钮上方且无横向溢出。
-
-============================================================
-
-## 233. 【2026-08-08 00:48】- 所有关闭按钮统一为 model-fetch 基准样式
-
-### 修改内容
-
-- 以 `/model-fetch` 页头关闭按钮为唯一视觉基准，统一所有真实关闭按钮的 38×38 尺寸、2px 边框、背景、阴影、圆角、图标颜色和 hover / focus / active 状态。
-- 修复暗色模式通用 SVG 反相滤镜导致相同关闭图标因 DOM 包装不同而变色的问题；同步更新 `CLAUDE.md` 公共类约束。
-- 移除插件页及 API 配置、备份、模型获取相关页面复制的关闭按钮外观规则；纠正文件下载和“移除选中文本”按钮误用关闭按钮语义类的问题。
-
-### 实现方式
-
-- `app/styles/globals.scss` 继续作为关闭按钮唯一样式 owner，并在关闭 SVG 公共规则增加 `filter: none !important`；现有 `stroke: currentcolor !important` 统一覆盖 SVG 内联颜色。
-- 删除 `plugin.module.scss`、`provider-balances.module.scss`、`api-config.module.scss`、`api-config-backups.module.scss`、`chat-backups.module.scss` 与 `button.module.scss` 中重复或不可达的关闭按钮外观规则，各页面只保留页头定位布局。
-- `chat.tsx` 的“移除选中文本”按钮移除 `data-close-button`；`file-preview.tsx` 下载按钮改用专用 `.file-preview-header-download`，保持同尺寸操作按钮外观但不冒充关闭动作。
-
-### 验证
-
-- `npx tsc --noEmit --pretty false`、`yarn lint` 与 `git diff --check` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
-- 全仓静态审计确认剩余 `.nextchat-close-button`、`data-close-button="true"` 和 `IconButton close` 均为真实关闭动作，组件级 SCSS 不再覆盖关闭按钮视觉；本地热加载连续编译成功。
-- 浏览器在 393×852 暗色 `/api_config` 实测关闭按钮 `color=rgb(187, 187, 187)`、SVG `filter=none`，两条 path 的计算 `stroke` 均为 `rgb(187, 187, 187)`，与用户提供的 `/model-fetch` 基准一致。
-- 全文件 Prettier 检查仍命中多个大文件的既有格式基线差异；本次改动通过 `git diff --check`，未整体格式化这些文件以避免无关大面积变更。
-
-### 潜在或遗留问题
-
-- 内嵌浏览器后续出现标签无法恢复且新 webview 未附着，未能再次逐页执行 hover 和截图对比；已完成公共 owner、静态消费者、类型、Lint、热加载与 `/api_config` 计算样式验证。
-- 未执行生产部署；本次仅在本地 `nextchat-dev` 热加载环境验证。
-
-============================================================
-
-## 232. 【2026-08-06 22:42】- 修复移动端 SVG 图标缩放偏移和 chat-export-action 图标颜色不一致
-
-### 修改内容
-
-- 修复移动端侧边栏底部设置/主题图标 SVG 被 CSS 缩放时内容偏移到左上角的问题（@svgr/webpack 默认 SVGO 配置 removeViewBox 剥离了 viewBox）。
-- 修复移动端聊天头部"新建对话"加号图标颜色与旁边图标不一致：暗色模式过亮（bright white）、亮色模式过深（near black）。
-
-### 实现方式
-
-- `next.config.mjs`：webpack svg 规则添加 `svgoConfig.plugins` 禁用 `removeViewBox`，保留 SVG 源文件中的 viewBox 属性。
-- `app/components/chat.module.scss`：`.chat-export-action` 的 idle/hover svg path stroke 从 `var(--black)` 改为 `color-mix(in srgb, var(--black) 62%, var(--white))`，在亮暗模式下都精确产出 ~rgb(127)，匹配旁边非 chat-export-action 图标经 `filter: invert(0.5)` 后的视觉亮度。
-
-### 验证
-
-- CDP 验证修复前 svg viewBox 为 null，修复后为 "0 0 16 16"；图标内容渲染尺寸从 15.3×15.3 提升到 19.2×19.2（20px 容器）。
-- 暗色模式截图 AI 分析确认加号图标从 bright white 变为 medium gray，与旁边图标一致。
-- 亮色模式截图 AI 分析确认加号图标颜色与 sliders 图标同色。
-
-### 潜在或遗留问题
-
-- `add.svg` 和 `export.svg` 是 stroke 描边图标（stroke-width 1.333），而 `config.svg` 等是 fill 实心图标，视觉权重天然有差异；颜色已对齐但笔画粗细差异属于图标设计风格，非 bug。
-
-## 231. 【2026-08-03 11:00】- 移动端消息图片轻点优先打开预览
-
-### 修改内容
-
-- 修复移动端已发送消息气泡内含图片时，轻点图片被气泡操作菜单抢占、无法打开原图的问题。
-- 图片轻点现在直接打开原图预览；手指滑动超过阈值时视为滚动，不误触预览。纯文本气泡菜单、桌面端点击和键盘操作保持原行为。
-
-### 实现方式
-
-- `app/components/chat.tsx` 的 `ChatImage` 记录触摸起点，并以横向或纵向 8px 作为移动阈值；未发生明显移动时在 `touchend` 阶段阻止事件继续传给消息气泡并直接打开预览。
-- 合成 click 与普通桌面 click 均停止向气泡冒泡，键盘 Enter / Space 仍复用原预览入口。
-- `docs/development.md` 同步记录移动端图片点击优先级与滚动手势边界。
-
-### 验证
-
-- 393×852 移动端视口打开 `ccc` 用户已有“附件内容”会话，确认已发送消息内存在 1 张图片；点击图片后 `.image-preview-modal` 与原图预览图片均唯一出现。
-- `npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。`docs/development.md` Prettier 检查通过，新代码片段符合 Prettier 输出。
-- 本地 `nextchat-dev`、`codeinterpreter-local` 与 `postgres-ssh-tunnel` 已重启；`/chat` 返回 HTTP 200，Next 开发服务完成编译，宿主机与容器内 `app/components/chat.tsx` SHA-256 一致。
-
-### 潜在或遗留问题
-
-- 应用内浏览器的 CDP 不支持派发原生 `touchStart/touchEnd`，因此本轮运行态验证使用移动端视口点击；触摸移动阈值逻辑由 TypeScript、Lint、静态代码路径与热加载编译覆盖。
-- `app/components/chat.tsx` 全文件 Prettier 检查仍仅命中任务开始前两处 `openFilePreview` 换行差异，本轮未扩大无关格式修改。提交、双远程推送和生产部署结果以本轮发布核验为准。
-
-============================================================
-
-## 230. 【2026-08-02 19:45】- 新建对话时聚焦侧栏顶部会话
-
-### 修改内容
-
-- 修复侧边栏停留在较早历史会话时，点击“新的聊天”后新空白会话虽然已置顶并选中，但列表仍保留旧滚动位置、导致第一条不可见的问题。
-- 主动新建时同时清除会隐藏空白会话的搜索条件；当前已经是空白会话时重复点击也会恢复侧栏顶部，不会重复创建会话。
-
-### 实现方式
-
-- `app/utils/new-chat.ts` 的统一 `startNewChat()` 入口在完成会话与路由更新后派发侧栏聚焦事件，覆盖侧边栏按钮、聊天命令、快捷入口和 `/new-chat` 兜底。
-- `app/components/chat-list.tsx` 收到事件后同步重置真实滚动容器 `scrollTop` 和虚拟列表窗口 state，并在下一帧复核一次；`app/components/sidebar.tsx` 不再因当前已经是空白会话而提前跳过统一入口。
-- `docs/development.md` 同步记录主动新建对话必须清除筛选并聚焦侧栏第一条的交互边界。
-
-### 验证
-
-- 真实 `ccc` 用户数据加载 80 条以上会话并启用虚拟列表后，从深层历史位置选择会话再点击“新的聊天”：侧栏 `scrollTop` 从 `5218` 变为 `0`，新会话位于列表顶部、保持选中且完整可见，URL 为 `/chat`。
-- 当前已经是空白会话且搜索无匹配结果时重复点击“新的聊天”：搜索内容清空、`scrollTop=0`，仍只有当前空白会话处于选中状态。
-- `npx tsc --noEmit --pretty false`、目标文件 Prettier、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
-
-### 潜在或遗留问题
-
-- 本轮已获提交与生产部署授权；提交、双远程推送和生产健康结果以本轮发布核验为准。
-
-============================================================
-
-## 229. 【2026-08-02 17:45】- 隔离聊天站内导航与 Next 页面刷新
-
-### 修改内容
-
-- 修复“先选择历史对话，再点新的聊天”时 Next.js 把 React Router 普通路径变化当成 App Router 页面导航、重新请求 catch-all 页面并重连整棵客户端副作用的问题。
-- 保留新建会话短时事务中的旧 URL 恢复守卫；页面初始化幂等标记改为当前 `window` 文档生命周期，Fast Refresh 可保留，真实硬刷新会自动清空。
-- 清除本轮定位使用的 `DEBUG-FETCH-ME`、`DEBUG-SELECT-SESSION`、`DEBUG-INIT-NEW-PAGE`、`DEBUG-NEW-CHAT` 临时控制台日志；同步更新开发文档。
-
-### 实现方式
-
-- `app/utils/route-sync-entry.ts` 新增 `installReactRouterHistoryBridge()`：React Router 写入 `pushState` / `replaceState` 时合并当前 Next 内部 history tree 并补上 `__NA`，只更新 BrowserRouter 与地址栏，不触发 Next 再拉 RSC。
-- `app/components/home.tsx` 在客户端挂载时立即安装 history 桥接，并在 effect 队列结束后复核一次，覆盖 Next 父级 effect 较晚包装 history 的时序。
-- `app/components/chat.tsx` 在 `startNewChat()` 的 1500ms 事务窗口内跳过旧 `urlSessionId` 回写；`app/store/chat.ts` 用 `window` 属性保存同一文档内的初始化标记，切换用户时显式清除。
-- `docs/development.md` 补充 BrowserRouter / Next App Router history 边界和页面初始化生命周期约束。
-
-### 验证
-
-- `npx tsc --noEmit --pretty false`、目标文件 Prettier、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。`app/components/chat.tsx` 仍有任务开始前两处与 Prettier 基线不一致的 `openFilePreview` 换行，未扩大无关格式改动。
-- 本地 `nextchat-dev` 使用 `ccc` 用户真实回归“数字输入与计算澄清历史会话 → 新的聊天”：URL 从 `/chat/zXjTUKVdlXRB-bwFObgY0` 立即回到 `/chat`，当前用户仍为 `ccc`，空会话恰有 1 个，加载遮罩为 0。
-- 容器日志在 `dyx` 与 `ccc` 两轮“历史 → 新建”站内导航期间均没有 `POST /chat...` 或 `POST /new-chat`，只保留首次页面打开的 `GET /chat`；宿主机与 `nextchat-dev:/app` 内 5 个修改文件 SHA-256 全部一致，热加载容器已是最新代码。
-
-### 潜在或遗留问题
-
-- 未发送真实模型消息，因此没有产生外部模型请求；首条消息把 URL 补全为 `/chat/<新 ID>` 的代码走同一 history 桥接入口，已完成类型与静态检查，但本轮未用真实流式回复再次消耗模型额度验证。
-- 切换到 `ccc` 时出现一次既有余额配置读取失败日志，不影响会话切换与新建结果；本轮未修改余额链路。提交、双远程推送与生产部署结果以本轮发布核验为准。
-
-============================================================
-
-## 228. 【2026-07-27 11:36】- 固定移动端用户切换卡片列宽
-
-### 修改内容
-
-- 调整移动端“用户管理”列表的用户身份、密码、对话数量、最近对话四列；不同用户名不再推移详情列，`admin`、`ccc`、`dyx` 均可完整显示。
-- 收窄最近对话日期的最小宽度，使身份列获得足够空间；日期列在填满剩余横向空间时正常显示，空间不足才省略。
-- 修复首页首轮回复完成期间新建对话已出现但焦点被旧会话同步写回的问题。
-
-### 实现方式
-
-- `app/components/user-menu.module.scss` 将移动端身份列固定为 88px，密码和对话数量列固定为 36px、48px，最近对话列用 `minmax(64px, 1fr)` 吃满所有剩余宽度；当前徽章和删除勾选继续绝对定位覆盖右侧，不再占用表格宽度。未改桌面端布局、用户数据或切换逻辑。
-- `app/store/sync.ts` 在聊天同步结果写回前总是以实时 `selectedSessionId` 重算索引；即使新建空会话已在合并结果中，也不能由同步开始时的旧焦点覆盖。
-- `docs/development.md` 同步记录移动端用户管理列表的固定列宽和日期省略规则。
-
-### 验证
-
-- 393px 应用内浏览器中打开“用户管理”，三条用户卡片的字段起点一致，用户名完整显示；最终布局通过 CSS 复核确认 `.userDetails` 使用 `flex: 1` 填满身份列右侧剩余宽度。控制台无 warning/error。
-- `yarn prettier --check app/components/user-menu.module.scss docs/development.md`、`npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 提示。
-- 同步焦点补丁后再次运行 `npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仍仅保留既有 `<img>` 提示。
-
-### 潜在或遗留问题
-
-- 未执行生产部署；本次只验证本地 `nextchat-dev` 热加载环境。
-
-============================================================
-
-## 227. 【2026-07-27 09:52】- 修复新建聊天刷新感与空白会话生命周期
-
-### 修改内容
-
-- 修复历史会话刚打开、后台同步仍在进行或旧回复仍在流式输出时点击“新的聊天”会卸载聊天主体并闪出全屏加载页的问题；侧边栏按钮、聊天命令、快捷键和移动端入口现在直接创建或选中空白会话并跳转 `/chat`。
-- 修复页面首开默认空白会话和新建空白会话被迟到同步短暂覆盖、删除或重新显示历史恢复遮罩的问题；已加载的历史消息也不会再被远端空占位符覆盖。
-- 修复从历史会话新建后发送第一条消息时，URL 从 `/chat` 补全为 `/chat/<id>` 又触发一轮整页自动同步、导致回复过程中出现刷新感的问题。
-- 修复对话完成和同步写回后列表自动补出另一条空白“新的聊天”的问题；空白会话只在主动新建、页面刷新初始化或删除最后一条会话等明确入口创建。
-
-### 实现方式
-
-- `app/utils/new-chat.ts` 集中 `startNewChat()` 与默认空会话识别，用短时事务标记包住会话创建和路由更新；`app/components/home.tsx` 的 URL 恢复守卫在该事务期间不误判加载。侧边栏、聊天快捷入口及 `/new-chat` 兜底组件复用同一入口，既不会卸载聊天主体，也不会被旧会话 URL 写回。
-- `app/store/sync.ts` 与 `app/utils/sync.ts` 在同步合并、孤儿清理和写回 rebase 阶段保留本地新空会话及已水合消息；`app/components/chat.tsx` 只在确有历史消息待恢复时显示聊天主体加载遮罩，默认空白会话不再被遮住。
-- `app/utils/route-sync-entry.ts` 将 `/chat` 与 `/chat/<id>` 规范化为同一个聊天页同步作用域；首次发送仍正常补全地址栏会话 ID，但不会把同页地址变化当成重新进入页面。
-- `app/store/sync.ts` 只保留当前仍被选中的默认空会话，不再把未选中的空会话 prepend 回已完成对话列表。
-- `app/store/chat.ts` 将 `initializeForNewPage()` 限制为每个文档生命周期只初始化一次，用户切换时显式重置；`app/components/home.tsx` 等待聊天 store 的 `_hasHydrated` 后才执行该初始化，避免先初始化默认内存状态又被 IndexedDB 水合覆盖，也避免回复完成后的同页再次水合被误判成完整刷新。
-- `app/components/home.tsx` 同步加载轻量 `/new-chat` 兜底组件，`docs/development.md` 记录路由、同步与加载遮罩边界。
-
-### 验证
-
-- `yarn lint` 通过，仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、本次目标文件 Prettier 与 `git diff --check` 通过；`app/components/chat.tsx` 仍保留任务开始前已有的两处 Prettier 基线差异，未扩大无关格式改动。
-- 应用内浏览器验证历史会话打开后点击“新的聊天”：立即与同步晚到 8 秒后均保持 `/chat`、标题“新的聊天”和 0 条对话，无历史恢复遮罩，控制台无 warning/error；连续“历史→历史→新建”、快捷键和 `:new` 命令入口结果相同。
-- 真实发起两轮无敏感内容的流式回复回归：第一轮复现旧顺序在新建后约 160ms 的加载遮罩，调整为路由先行后，第二轮从点击后 0ms 至旧请求晚到 7 秒的全部采样点均为 0 个聊天/外壳加载遮罩，空白新会话和 `/chat` 路由始终稳定。
-- 按“选择历史会话 → 点击新对话 → 发送第一条消息”的精确顺序再次回归；修复同页 URL 补全触发的重复路由同步后，从首次发送到回复和标题完成后的 12 秒内，聊天主体/外壳加载遮罩始终为 0，控制台无 warning/error。
-- 应用内浏览器连续观察默认 `/chat` 首开 6.85 秒，并在默认空会话重复点击“新的聊天”：聊天主体出现后始终没有 `chat-main-loading`，无框架错误覆盖层；宿主机与 `nextchat-dev` 容器内相关代码和文档 SHA-256 一致，`GET /chat` 返回 200。
-- 最终应用内浏览器按“随机数字规律历史会话 → 新的聊天 → 发送‘空白会话生命周期回归，只回复OK。’”真实回归：发送前恰有 1 个 `0 条对话`，发送后第 1–18 秒始终为 0，回复第 3 秒完成，URL 稳定为 `/chat/<新 ID>`，聊天/外壳加载遮罩始终为 0，控制台无 warning/error；完整刷新后第 1–10 秒始终恰有 1 个 `0 条对话`，无框架错误覆盖层。
-
-### 潜在或遗留问题
-
-- 未执行生产部署，线上仍是提交 `c666dede`；本次仅验证本地 `nextchat-dev` 热加载环境。
-
-============================================================
-
-## 226. 【2026-07-25 17:35】- chat.dyxcloud.com 部署 c666dede 并补 HANDOFF #225
-
-### 修改内容
-
-- 把 `c666dede`（提示词选择器视觉与模型选择器完全对齐，HANDOFF #225）部署到生产 `chat.dyxcloud.com`，重建 `nextchat-baota:latest` 并以 `--force-recreate` 重启 `nextchat` 容器，写入 PostgreSQL `deployment_metadata`，同步宝塔 DockerSite 容器 ID。
-
-### 实现方式
-
-- 服务器 `ss`（默认部署路径 `/www/dk_project/my_NextChat`）上 `tmux new-session -d -s nextchat-baota-deploy` 执行标准命令：`git pull --ff-only` → `docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat` → `docker rm -f nextchat` → `docker image rm nextchat:latest` → `up -d --force-recreate nextchat` → `scripts/sync-baota-dockersite-container-id.sh`。
-- `git pull --ff-only` 从 Gitee `origin/main`（服务器 origin 当前指向 Gitee，符合 `AGENTS.md §Git 提交规则`）拉取 `0f84684e..c666dede`，更新成功。
-- 构建耗时 215.3s，新镜像 `nextchat-baota:latest`（sha `3ced7f71e795534a7c5300c09ea2bc5c29dff4ebbce2c`）。
-- `sync-baota-dockersite-container-id.sh` 写入 `deployment_metadata`（commit `c666dede923de11d84187602b431d682b4ec78ae` / image `nextchat-baota:latest` / branch `main` / deployedAt `2026-07-25T09:34:45.575Z`），同步 `docker_sites.name='chat.dyxcloud.com'.container_id = 416829fbd68b...`，备份 `/root/docker.db.bak-nextchat-20260725-173439`，清理上一轮 `/root/docker.db.bak-nextchat-20260725-121013`。
-
-### 验证
-
-- `docker ps --filter name=nextchat` → `nextchat` `Up 15 seconds (healthy)`，监听 `127.0.0.1:3000->3000/tcp`，镜像 `nextchat-baota:latest`。
-- `curl http://127.0.0.1:3000/api/db/health` → `HTTP/1.1 200 OK` + `{"ok":true,"postgres":{"now":"2026-07-25 17:34:54.518914+08","version":"PostgreSQL 18.0 ...","database":"nextchat","user":"dyx","configuredHost":"172.20.0.1","configuredPort":5432}}`。
-- `curl -k -I https://chat.dyxcloud.com/` → `HTTP/2 200` + `x-powered-by: Next.js`。
-- `docker exec nextchat node scripts/probe-deployment.cjs` → schema `public`、limit 1、命中 1 行 `commit_hash=c666dede923de11d84187602b431d682b4ec78ae` / `image_name=nextchat-baota:latest` / `deployed_at=2026-07-25T09:34:45.575Z`，与本地 HEAD 一致。
-- 浏览器端 light / dark 视觉对齐需要在登录态或免登录模式（默认 `ccc` 用户）打开 `/chat` 顶部「提示词」与「模型」两个弹窗，对比确认；本会话无浏览器侧视觉证据，差异需人工对照。
-
-### 潜在或遗留问题
-
-- 本会话 `nextchat-dev` 容器未运行，HANDOFF #225 的 CSS 改动无截图验证；prod 已部署但用户侧视觉对照（count 徽章 / 列表容器 / 列表项 / hover / 图标边框 / 副标题 / 工具栏按钮 light + dark）需手工完成。
-- `.prompt-picker-search::placeholder` 与 `.prompt-search-highlight` dark 端的有意硬编码未同步（见 HANDOFF #225 遗留项）。
-
-============================================================
-
-## 225. 【2026-07-25 17:29】- 提示词选择器视觉与模型选择器完全对齐
-
-### 修改内容
-
-- 把 `/chat` 顶部「提示词」按钮点开的提示词选择器（`.prompt-picker-*`）从边框 / 圆角 / 字号 / 字重 / 阴影 / 字体 / 颜色到 hover 反馈、dark 主题适配，逐项对齐到模型选择器（`.model-selector-panel .nextchat-selector-*`）。
-- 同时把 `.prompt-picker-*` 内部散落的 dark 写死色（`rgb(30,41,59)` / `#1e293b` / `#e5e7eb` / `#9ca3af` / `rgba(71,85,105,*)` / `rgba(148,163,184,*)` 等）整体替换为共享 CSS 变量（`var(--black)` / `var(--model-selector-list-bg)` / `var(--selector-control-border-color)` / `var(--border-in-light)` / `var(--model-selector-hover-bg)` 等），删掉 160 行 `@media (prefers-color-scheme: dark)` 镜像块，让 globals 主题变量统一驱动。
-
-### 实现方式
-
-- `app/styles/globals.scss`：在 `.nextchat-modal-count` 规则集按 `.model-selector-hint-count` 完全重写（边框 2px / 共享变量 / 600 字重 / Noto Sans 字体栈 / 阴影 / 过渡）；并在 `html.dark .model-selector-panel` 旁追加 `html.dark .prompt-picker-panel` / `@media (prefers-color-scheme: dark) :root:not(.light) .prompt-picker-panel` 局部重定义 `--model-selector-hover-bg/-selected-bg = rgba(255,255,255,0.08 / 0.13)`，使 dark hover 与模型选择器相同。
-- `app/components/chat.module.scss`：
-  - `.prompt-picker-count` 模块覆盖清空，全部交给 globals；
-  - `.prompt-picker-list`：边框 2px、圆角 10px、单层 `--card-shadow`、背景 `var(--model-selector-list-bg)`；
-  - `.prompt-picker-item`：min-height 44 / padding 12 16 / 移除偶数行 slate 斑马纹 / hover 背景 `color-mix(primary 6%, white) !important` + 标题强制 primary；
-  - dark `.prompt-picker-item:hover` 改走 `var(--model-selector-hover-bg)`；
-  - `.prompt-picker-item-icon` light 边框走 `var(--selector-control-border-color, var(--input-control-border-color))`，dark 改用 `var(--model-selector-list-bg)` + `var(--selector-control-border-color)`；
-  - `.prompt-picker-panel` 内的 `nextchat-default-button` 仅保留 `box-sizing`，其余全部交给 globals；
-  - 删掉 160+ 行 `@media (prefers-color-scheme: dark) :global(body:not(.light):not(.dark))` 镜像块；
-  - 删掉 `:global(body.dark) .prompt-picker-header` 写死的 `rgba(55,65,81,0.9)` 边框覆盖，由 light 端 `var(--border-in-light)` 自动驱动；
-  - `.prompt-picker-title-sub` / `.prompt-picker-content` / `.prompt-picker-empty` 的 dark 颜色统一改为 `var(--black)` + opacity 公式。
-
-### 验证
-
-- 本会话内 `nextchat-dev` Docker 容器未运行，没法截图；改动是机械等价覆盖。
-- 部署后需在 dev 容器或 `https://chat.dyxcloud.com/` 上验证：light / dark 下打开提示词选择器，count 徽章 / 列表容器 / 列表项 / hover / 图标边框 / 副标题 / 工具栏按钮颜色与模型选择器对应位置一致；跟随系统暗色同样一致。
-
-### 潜在或遗留问题
-
-- `.prompt-picker-search::placeholder` 仍写死 `#94a3b8`（slate-400），与模型选择器 placeholder 默认色不同；保留为可读性选择，如需主题化可后续切到共享变量。
-- `.prompt-search-highlight` 的 dark slate 高亮是有意去主题色处理，未同步；light 端保留 primary 高亮。
-- `chat.module.scss` 内其他模块（侧边栏 / 聊天消息 / 设置等）仍存在 60+ 处 slate 硬编码（`rgba(148,163,184,*)` / `rgba(100,116,139,*)` / `#94a3b8`），属于「全局 slate 主题化」更大议题，本次未触碰。
-
-============================================================
-
-### 修改内容
-
-- 把临时 `/app/probe-deployment.cjs` 正式入仓到 `scripts/probe-deployment.cjs`，消除每次容器重建后必须 ssh + scp + docker cp 重传的运维负担；脚本会被 Next.js 镜像 `COPY . .` 直接带入 `/app/scripts/probe-deployment.cjs`。
-- `README_BAOTA.md §3` 验证块改为直接 `docker exec nextchat node scripts/probe-deployment.cjs` 调用，支持 `--limit N` 与 `LIMIT=N` 两种参数形式；不再需要外贴 SQL 块。
-
-### 实现方式
-
-- `scripts/probe-deployment.cjs`：以 CommonJS + `pg` 客户端从 `process.env.PG*` 读取连接，复用运行时的 `pg` 依赖与连接池配置；自动从 `information_schema.tables` 探测 `deployment_metadata` 所在 schema，避免硬编码 `public`；输出 `{schema, limit, rows}` JSON，缺环境变量或缺表时给出中文提示并以 exit 2 退出。
-- `README_BAOTA.md §3` 把 SQL 块替换为指向 `scripts/probe-deployment.cjs` 的三行用法示例，与宝塔 §8 验证块口径一致。
-- 临时遗留：`/tmp/probe-deployment.cjs`（本地）与 `/app/probe-deployment.cjs`（线上容器内）将在下次部署新镜像后被新 `node scripts/probe-deployment.cjs` 调用替代，不再需要保留；本轮未在线清理，避免在重新部署完成前影响现网验证。
-
-### 验证
-
-- `bash scripts/probe-deployment.cjs` 在本地未注入 PGHOST 时按预期打印 `ERR 缺少 PGHOST/PGDATABASE/PGUSER 环境变量` 并 exit 2；当前线上容器内 `node scripts/probe-deployment.cjs` 与既有 `node /app/probe-deployment.cjs` 调用结果一致；新规则在本轮 commit + push + deploy 完成后由线上版本覆盖。
-
-### 潜在或遗留问题
-
-- 容器重建不会自动清掉历史 `/app/probe-deployment.cjs`（取决于镜像层而非常规隐藏），下次部署结束如仍残留可单独 `docker exec nextchat rm /app/probe-deployment.cjs`；不影响功能。
-- 与 `scripts/check-postgres-health.ts` 等历史 tsx 工具并列，新探针保留 `.cjs` 形式，便于在镜像里快速执行无需编译。
-
-### 修改内容
-
-- Dockerfile `deps` 阶段 `yarn install` 增加 `--ignore-scripts`，抑制 canvas 等 OPTIONAL 原生模块触发 node-gyp 重新下载 node headers；上一次部署日志里 `unofficial-builds.nodejs.org` 偶发 `ETIMEDOUT`，本轮构建 grep `gyp ERR|ETIMEDOUT|canvas|FATAL` 全部为空，证明已生效。
-- `README_BAOTA.md §3` 中 `select commit_hash from deployment_metadata ...` 改为 `select commit_hash, image_name, git_branch, deployed_at ...`，与线上实际表列对齐，避免 `42703 column does not exist`；并在 §3 增加「完成标志清理」说明，指引 `/tmp/nextchat-baota-deploy.sh` 顶部 `rm -f /tmp/nextchat-baota-deploy.done`。
-- 服务器端 `/tmp/nextchat-baota-deploy.sh` 顶部已注入 `rm -f /tmp/nextchat-baota-deploy.done`，本次部署中 done 标志按预期出现（构建 11:48 起 → 11:53:21 完成），无残留误判。
-- HANDOFF 实际起算逻辑：本次 commit 包含 #222 文本（之前的部署记录）与本次新增 #223。
-
-### 实现方式
-
-- 仅触及 `Dockerfile`、`README_BAOTA.md`、`HANDOFF.md` 三个文件，由 `f5c93ff5` commit 提交；`/tmp/nextchat-baota-deploy.sh` 是服务器端临时脚本，仅在本轮同步到服务器 `ss`。
-- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`。
-
-### 验证
-
-- 构建日志：`grep -E "gyp ERR|ETIMEDOUT|canvas|FATAL" /tmp/nextchat-baota-deploy.log` 返回 0 命中，节点下载告警消失；yarn install 与 next build 通过。
-- Docker：`nextchat` 状态 `Up 2 minutes (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
-- `/api/db/health`：HTTP 200，PostgreSQL 18.0，数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
-- Nginx：`nginx -t` 通过。
-- 域名：服务器本地 `https://chat.dyxcloud.com/`、`/chat`、`/draw` 均 HTTP/2 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
-- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `f5c93ff54242ec70fe93770cb00da0565c9ef0be`；`image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:53:20.682Z`。
-- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `f22d7285162ef3a14d722654625c08164b990379b3875458fce99a6a589b067b`。
-- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5`，通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725115321`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-114349` 已清理。
-
-### 潜在或遗留问题
-
-- `/app/probe-deployment.cjs` 临时探针每次容器重建都会丢失，需要 ssh + scp + docker cp 重新上传；本属个人探针，未纳入仓库，不影响线上服务；本次部署已重新上传并使用。
-- 与历史部署相比，部署时 commit metadata 已包含 docker 构建起止时间（`deployed_at=2026-07-25T03:53:20.682Z`），但本次没有新增运维建议。
-
-### 修改内容
-
-- 把 `4abba5af chat.dyxcloud.com 部署 5db2df74 并补 HANDOFF #221`（仅含 HANDOFF 记录）推送到 chat.dyxcloud.com 宝塔 DockerSite。
-
-### 实现方式
-
-- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、强制重建容器、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`；脚本继续沿用 `/tmp/nextchat-baota-deploy.sh`，但首次完成后 `touch /tmp/nextchat-baota-deploy.done` 残留被误判为本次结束，本轮已在线清理。
-- 构建过程中 `node-gyp` 尝试从 `https://unofficial-builds.nodejs.org/download/release/v22.13.0/node-v22.13.0-headers.tar.gz` 下载 node 头文件并失败（`ETIMEDOUT`）；日志自带 `info This module is OPTIONAL, you can safely ignore this error`，不影响最终镜像与 Next.js 构建，yarn install 与 next build 都已通过。
-
-### 验证
-
-- Docker：`nextchat` 状态 `Up 2 minutes (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
-- `/api/db/health`：HTTP 200，PostgreSQL 18.0，数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
-- Nginx：`nginx -t` 通过。
-- 域名：服务器本地 `https://chat.dyxcloud.com/`、`/chat`、`/draw` 均 HTTP/2 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
-- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `4abba5af2aa36fd98be8557658e08f66a7dad1d2`；`image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:43:56.481Z`。
-- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `0ab67de8d5c5138a709c64213c49ca847b1c7615d5d23d7ae8513ceab183c49c`。
-- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5`，通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725114357`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-113443` 已清理。
-
-### 潜在或遗留问题
-
-- `/tmp/nextchat-baota-deploy.done` 文件不带时间戳且未在每次部署开始时清空，下一次部署脚本若快速完成会让外部脚本误判；建议在 `nextchat-baota-deploy.sh` 顶部加 `rm -f /tmp/nextchat-baota-deploy.done`，避免下一轮再出现这次发现的「done 残留 = 上轮已完成」诊断歧义。
-- `/app/probe-deployment.cjs` 临时探针每次容器重建都会丢失，需要 ssh + scp + docker cp 重新上传；本属个人探针，未纳入仓库，不影响线上服务。
-- `node-gyp` 下载 node 头文件失败在 `yarn install` 阶段输出 `info This module is OPTIONAL, you can safely ignore this error`；本次未影响镜像与线上行为，可考虑未来为 Dockerfile 增加 `yarn config set ignore-scripts true` 或本地预下载 vendor，避免每次重新构建时再做 OPTIONAL 下载失败。
-- 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用旧列名（实际表列是 `image_name` / `git_branch`），下次文档同步修订时一起校正。
-
-### 修改内容
-
-- 把 `5db2df74 chat.dyxcloud.com 部署 7992b382 并补 HANDOFF #220`（仅含 HANDOFF 部署记录）推送到 chat.dyxcloud.com 宝塔 DockerSite，确保线上版本与本地提交一致、上一轮 #220 记录也进入线上仓库。
-
-### 实现方式
-
-- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`；脚本继续沿用 `/tmp/nextchat-baota-deploy.sh`。
-
-### 验证
-
-- Docker：`nextchat` 状态 `Up About a minute (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
-- `/api/db/health`：HTTP 200，PostgreSQL 18.0 数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
-- Nginx：`nginx -t` 通过。
-- 域名：服务器本地 `https://chat.dyxcloud.com/` HTTP/2 200，/`/chat`、`/draw` 均 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
-- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `5db2df741a7ba07243f688e6b71c01591f45fb22`；deployment 行 `image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:34:50.346Z`。
-- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `40bb064269ac8078017d7801a35aea62821cfe77f4cea3a2f3cebf1e6303dea2`。
-- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5` 并通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725113451`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-100459` 已清理。
-
-### 潜在或遗留问题
-
-- 本轮仅包含 HANDOFF 文案修改，未触碰代码 / 样式 / 配置 / 数据库 / 容器化结构，未对生产服务器、数据库或容器做删除或回滚操作；回滚路径仍是上一次成功部署的 `7992b382` 构建层。
-- 容器重建会让 `/app/probe-deployment.cjs` 随镜像消失，`deployment_metadata` 验证脚本需每次重新 `docker cp`；属于个人临时探针，未纳入仓库，不影响线上服务。
-- 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用了旧列名；线上表实际列是 `image_name` / `git_branch`，下次文档同步修订时一起校正。
-
-### 修改内容
-
-- 把 `7992b382 短 Word 文档默认铺满并收敛内联页边距` 推送到 `chat.dyxcloud.com` 宝塔 DockerSite 容器，线上版本与本地提交一致。
-
-### 实现方式
-
-- 标准重部署流程（README_BAOTA.md §3）：在 SSH alias `ss` 服务器（42.193.15.117:222）的 `/www/dk_project/my_NextChat` 目录中放入 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`./scripts/docker-compose-safe.sh ... up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`，整体放入 tmux 会话 `nextchat-baota-deploy` 防止 SSH 超时；脚本文件 `/tmp/nextchat-baota-deploy.sh` 已上传服务器执行。
-
-### 验证
-
-- Docker：`nextchat` 状态 `Up About a minute (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
-- `/api/db/health`：HTTP 200，`{"ok":true,"postgres":{"now":"2026-07-25 10:06:27+08","version":"PostgreSQL 18.0","database":"nextchat","user":"dyx","configuredHost":"172.20.0.1","configuredPort":5432}}`。
-- Nginx：`nginx -t` 通过。
-- 域名：`https://chat.dyxcloud.com/` 服务器本地与公网均 `HTTP/2 200`；服务器本地 `/chat` 与 `/` 均返回 200。
-- 容器内 `printenv BUILD_COMMIT_HASH = 7992b382a5d2f4831df5772b009e434ea4c96be5`；首页 HTML `commitHash` 同样为 `7992b382a5d2f4831df5772b009e434ea4c96be5`；`public.deployment_metadata` 最新行 `commit_hash=7992b382a5d2f4831df5772b009e434ea4c96be5, image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T02:05:05.994Z`，三处哈希全部一致。
-- 宝塔 DockerSite（chat.dyxcloud.com id=13）返回 `healthy=1`，容器 ID `19368c350549334560e06bc22a6cc9ad8fd16aa387e3374832a4db0d9a216fa6` 与本轮同步一致。
-- `fix-pg-hba.sh` 探测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5` 并通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725100506`。
-
-### 潜在或遗留问题
-
-- 本轮仅包含代码 / 样式 / 文档修改，未涉及 `.env.baota`、Nginx vhost、证书、数据库表结构、镜像基础镜像、Docker 容器名或端口；未对生产服务器、数据库、容器做任何删除或回滚操作，回滚路径仍是上一次成功部署时使用的镜像 `nextchat-baota:latest` 的 `c10e6e10` 构建层。
-- `deployment_metadata` 表的列名是 `image_name` 与 `git_branch`（不是 README 中误写的 `image` / `branch`）；后续 `§8 标准验证命令`的 SQL `select commit_hash, image, branch, ...` 因列名差异会返回 `42703 column does not exist`，下次更新文档时同步校正。
-
-### 修改内容
-
-- 修复只有几行文字的 Word（DOCX）在聊天文件预览中白色文档页高度过小的问题；短文档默认铺满预览正文区，长文档仍可完整纵向滚动。
-- 同时收敛 `docx-preview` 自带的内联页边距（常见值 `72pt 90pt`），把上下/左右 padding 收敛为响应式 `clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px)`，避免预览窗口中正文有效宽度被严重压缩。
-- 桌面端与移动端共用同一高度策略；窗口尺寸或手机方向变化时会重新计算，移动端缩放后仍铺满可见区域。
-
-### 实现方式
-
-- `app/components/file-preview.tsx` 的 `applyDocxSectionSizing()` 现在读取 `.docx-preview-root` 扣除上下 padding 后的可用高度，并结合 `section.docx` 当前 zoom 反算动态 `min-height`；同步直接覆盖 `section.style.padding` 为响应式小边距、`box-sizing: border-box` 把 Word 页内边距计入铺满高度。`height: auto`、`max-height: none` 和 `flex: 0 0 auto` 保留，避免重新引入长文档截断。
-- `applyDocxAutoScale()` 在每次 `ResizeObserver` 回调完成宽度缩放后同步重算页面最小高度；缓存 Blob 与新下载 Blob 两条渲染路径继续在同步帧、`requestAnimationFrame` 和 100ms 延时执行尺寸修正。
-- `app/components/chat.module.scss` 为 `section.docx` 增加同值 `padding: clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px) !important;` 兜底与 `box-sizing: border-box`，确保首帧和后续重排覆盖库内联样式；`min-height: 100%` 与 `flex: 0 0 auto` 保留。
-- `docs/development.md` 同步记录短文档铺满、DOCX 原始页边距覆盖与新响应式 padding 边界。
-
-### 验证
-
-- `yarn prettier --check app/components/file-preview.tsx app/components/chat.module.scss docs/development.md`、`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 全部通过；Lint 仅保留 `file-preview.tsx` 既有 `<img>` 性能提示。
-- `nextchat-dev`、`codeinterpreter-local` 和 PostgreSQL SSH 隧道容器均保持运行；`/chat` 返回 HTTP 200，热加载日志显示 5760 modules 编译成功。
-
-### 潜在或遗留问题
-
-- 当前安装未启用 in-app Browser pane，Playwright 又受系统临时目录权限限制，因此未能用浏览器工具点击真实短 DOCX 检查计算高度与最终样式；已完成样式、类型、编译和响应式尺寸链路验证。
-- 开发容器旧日志中存在与本次无关的 `cache_file_references` 外键约束错误，本轮未修改数据库或缓存引用链路。
 
 ============================================================

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProviderProfilesForAccessState } from "@/app/utils/server/provider-config-repository";
 import { resolveSharedSyncUserId } from "@/app/utils/server/sync-user";
+import { AuthError, requireAuthContext } from "@/app/utils/server/auth";
 
 const ALLOWED_TARGET_PREFIXES = [
   "/api/proxy/",
@@ -67,7 +68,24 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("target") ||
     "";
 
-  if (!target.startsWith("/api/") || !isAllowedTarget(target)) {
+  try {
+    await requireAuthContext(req);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
+    return NextResponse.json({
+      ok: false,
+      status,
+      statusText: "Unauthorized",
+      contentType: "application/json",
+      bodyText: jsonBody({ error: "unauthorized" }),
+    });
+  }
+
+  // 用解析后的 pathname 校验，防止 /api/proxy/../ 之类的路径穿越绕过白名单。
+  const targetPathname = target.startsWith("/api/")
+    ? new URL(target, "http://127.0.0.1:3000").pathname
+    : "";
+  if (!targetPathname || !isAllowedTarget(targetPathname)) {
     return NextResponse.json({
       ok: false,
       status: 400,
@@ -88,6 +106,9 @@ export async function GET(req: NextRequest) {
     const accept = req.headers.get("accept");
 
     if (authorization) headers.set("authorization", authorization);
+    // 内部转发到 /api/proxy 等需要登录的路由，需带上当前会话 cookie。
+    const cookie = req.headers.get("cookie");
+    if (cookie) headers.set("cookie", cookie);
     if (baseUrl) headers.set("x-base-url", baseUrl);
     headers.set("accept", accept || "application/json");
 

@@ -1,6 +1,11 @@
 import type { NextRequest } from "next/server";
 import { StoreKey } from "@/app/constant";
-import { resolveSyncUserContext, requireWritableAuthContext } from "./auth";
+import {
+  AuthError,
+  isAuthBypassEnabled,
+  resolveSyncUserContext,
+  requireWritableAuthContext,
+} from "./auth";
 
 const SHARED_STORE_KEYS = new Set<string>([
   StoreKey.Access,
@@ -12,6 +17,10 @@ const SHARED_STORE_KEYS = new Set<string>([
   StoreKey.DrawList,
   "sd-list",
 ]);
+
+// 插件内容会在所有用户的插件编辑器中渲染，且插件可向任意地址发请求；
+// 共享插件库只允许管理员（及本地免登录开发模式）写入。
+const ADMIN_ONLY_WRITE_STORE_KEYS = new Set<string>([StoreKey.Plugin]);
 
 export function getDefaultSyncUserId() {
   const configuredUserId = (
@@ -114,6 +123,16 @@ export async function requireWritableStoreSyncUserId(
       }
     | null,
 ) {
+  if (ADMIN_ONLY_WRITE_STORE_KEYS.has(storeKey)) {
+    const context = await requireWritableAuthContext(source);
+    if (!isAuthBypassEnabled() && context.actor.role !== "admin") {
+      throw new AuthError("admin_only_store", 403);
+    }
+    return isSharedSyncStoreKey(storeKey)
+      ? getDefaultSyncUserId()
+      : context.effective.externalId;
+  }
+
   if (isSharedSyncStoreKey(storeKey)) {
     return requireWritableSharedSyncUserId(source);
   }

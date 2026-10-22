@@ -26,7 +26,7 @@
   max-width: 100%;
   box-sizing: border-box;
   border: var(--border-in-light) !important;
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   box-shadow: var(--card-shadow);
   background-color: var(--white);
 
@@ -64,27 +64,25 @@
   word-break: break-word;
 }
 
-.sectionCard,
-.mobileOnlyCard {
+.sectionCard {
   position: relative;
   overflow: hidden;
-  background: radial-gradient(
+  background:
+    radial-gradient(
       220px circle at var(--hover-x, 50%) var(--hover-y, 50%),
-      color-mix(in srgb, var(--primary) 12%, transparent),
+      var(--hover-glow-color, transparent),
       transparent 62%
     ),
     var(--white);
   background-repeat: no-repeat;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
 .sectionCard:hover,
-.sectionCard:focus-within,
-.mobileOnlyCard:hover,
-.mobileOnlyCard:focus-within {
+.sectionCard:focus-within {
   border-color: color-mix(in srgb, var(--primary) 76%, transparent);
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
@@ -92,9 +90,7 @@
 }
 
 :global(.dark) .sectionCard:hover,
-:global(.dark) .sectionCard:focus-within,
-:global(.dark) .mobileOnlyCard:hover,
-:global(.dark) .mobileOnlyCard:focus-within {
+:global(.dark) .sectionCard:focus-within {
   border-color: color-mix(in srgb, var(--primary) 82%, transparent);
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
@@ -133,11 +129,15 @@
 
 // 非聊天表单统一沿用聊天记录搜索框的 hover / focus 反馈。
 .page
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):not(:disabled):not(:read-only) {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    select
+  ):not(:disabled):not(:read-only) {
   transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease,
-    background-color 0.3s ease;
+    border-color var(--duration-slow) ease,
+    box-shadow var(--duration-slow) ease,
+    background-color var(--duration-slow) ease;
 
   &:hover {
     border-color: var(--input-control-hover-border-color);
@@ -152,20 +152,6 @@
     box-shadow: var(--input-control-focus-shadow);
     outline: none;
   }
-}
-
-/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button / .nextchat-danger-button / .nextchat-default-button 统一接管。
-   本文件只保留页面特定的微调（高度、布局、margin、SVG 子元素等）。*/
-
-.hint {
-  margin: 0 0 16px;
-  padding: 12px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 12px;
-  background: var(--white);
-  color: var(--black);
-  line-height: 1.6;
-  font-size: 13px;
 }
 
 .actions {
@@ -327,32 +313,10 @@
   color: inherit;
 }
 
-.modelUpdateInlineNotice {
-  display: inline;
-  margin-left: 12px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: #dc2626;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
 @media screen and (max-width: 900px) {
-  .modelUpdateInlineNotice {
-    display: inline-block;
-    margin-left: 0;
-    margin-top: 6px;
-  }
 }
 
 @media screen and (max-width: 650px) {
-  .modelUpdateInlineNotice {
-    font-size: 12px;
-    text-align: left;
-  }
 }
 
 .profileSectionTitle {
@@ -454,7 +418,7 @@
   width: 100%;
   max-width: 100%;
   border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   background: var(--white);
   overflow: hidden;
   box-sizing: border-box;
@@ -558,7 +522,7 @@
     max-width: unset !important;
     width: 100% !important;
     min-width: 100% !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     transition: none !important;
     transform: none !important;
     box-shadow: none !important;
@@ -582,7 +546,7 @@
     padding: 8px 18px 8px 8px !important;
     min-height: 36px !important;
     height: 36px !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     font-size: 12px !important;
     font-weight: unset !important;
     background: var(--white) !important;
@@ -680,7 +644,7 @@
 .profileYutoModalContainer {
   box-shadow: var(--card-shadow);
   background-color: var(--white);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   width: min(760px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   min-width: 0 !important;
@@ -744,7 +708,7 @@
   width: 30px;
   height: 30px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--primary) 12%, var(--white));
   color: var(--black);
   display: inline-flex;
@@ -755,9 +719,9 @@
   position: relative;
   padding: 0;
   transition:
-    background 0.2s ease,
-    color 0.2s ease,
-    opacity 0.2s ease;
+    background var(--duration-base) ease,
+    color var(--duration-base) ease,
+    opacity var(--duration-base) ease;
 
   &:hover:not(:disabled) {
     background: var(--primary);
@@ -808,13 +772,6 @@
   justify-content: flex-end;
 }
 
-.profileApiKeyButton {
-  min-height: 38px;
-  padding: 6px 8px;
-  text-align: center;
-  cursor: pointer;
-}
-
 .profileYutoKeyInner :global(.nextchat-input-control) {
   width: 100% !important;
   max-width: 100%;
@@ -850,8 +807,10 @@
   box-shadow: none !important;
 }
 
-.profileRowActions :global(.nextchat-api-config-danger-action):not(:disabled):hover,
-.profileRowActions :global(.nextchat-api-config-danger-action):not(:disabled):focus,
+.profileRowActions
+  :global(.nextchat-api-config-danger-action):not(:disabled):hover,
+.profileRowActions
+  :global(.nextchat-api-config-danger-action):not(:disabled):focus,
 .profileRow :global(.icon-button.danger:hover),
 .profileRow :global(.icon-button.danger:focus) {
   border-width: 2px !important;
@@ -865,53 +824,9 @@
   font-size: 12px;
 }
 
-.switchRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-}
-
 .profileNameHighlight {
   color: var(--primary);
   font-weight: 600;
-
-  @media (prefers-color-scheme: dark) {
-    color: #60a5fa;
-  }
-}
-
-.mobileOnly {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  box-sizing: border-box;
-}
-
-.mobileOnlyCard {
-  width: min(100%, 360px);
-  padding: 28px 22px;
-  border: var(--border-in-light);
-  border-radius: 18px;
-  box-shadow: var(--card-shadow);
-  text-align: center;
-}
-
-.mobileOnlyTitle {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--black);
-}
-
-.mobileOnlyDesc {
-  margin-top: 12px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--black);
-  opacity: 0.72;
 }
 
 @media screen and (max-width: 900px) {
@@ -928,8 +843,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sectionCard,
-  .mobileOnlyCard {
+  .sectionCard {
     background: var(--white) !important;
     background-image: none !important;
     box-shadow: none !important;
@@ -939,15 +853,9 @@
   .sectionCard:hover,
   .sectionCard:focus-within,
   .sectionCard:active,
-  .mobileOnlyCard:hover,
-  .mobileOnlyCard:focus-within,
-  .mobileOnlyCard:active,
   :global(.dark) .sectionCard:hover,
   :global(.dark) .sectionCard:focus-within,
-  :global(.dark) .sectionCard:active,
-  :global(.dark) .mobileOnlyCard:hover,
-  :global(.dark) .mobileOnlyCard:focus-within,
-  :global(.dark) .mobileOnlyCard:active {
+  :global(.dark) .sectionCard:active {
     border: var(--border-in-light) !important;
     box-shadow: none !important;
   }
@@ -1070,7 +978,7 @@
     gap: 10px 12px;
     padding: 12px;
     border: var(--border-in-light);
-    border-radius: 14px;
+    border-radius: var(--radius-2xl);
     background: var(--white);
   }
 
@@ -1125,7 +1033,7 @@
 }
 
 @media screen and (max-width: 650px),
-	screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;
@@ -1171,7 +1079,6 @@
   .page :global(.window-action-button > button) {
     margin: auto;
   }
-
 }
 
 @media screen and (max-width: 650px) {
@@ -1208,19 +1115,10 @@
       align-items: center;
       justify-content: center;
     }
-
   }
 
   .content {
     padding: 12px;
-  }
-
-  .hint {
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    font-size: 12px;
-    line-height: 1.6;
   }
 
   .actions {
@@ -1261,7 +1159,7 @@
   .page :global(.nextchat-input-control) {
     min-height: 44px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     font-size: 16px;
   }
 
@@ -1275,7 +1173,7 @@
     min-height: 42px !important;
     margin-right: 0;
     padding: 0 12px !important;
-    border-radius: 9px !important;
+    border-radius: var(--radius-lg) !important;
     font-size: 14px !important;
     font-weight: 600;
     overflow: visible !important;
@@ -1324,7 +1222,7 @@
   }
 
   .profileTable {
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
     overflow: visible;
     background: transparent;
     border: 0;
@@ -1342,7 +1240,7 @@
     padding: 12px;
     margin-bottom: 10px;
     border: var(--border-in-light);
-    border-radius: 14px;
+    border-radius: var(--radius-2xl);
   }
 
   .profileTable > .profileRow:last-child {
@@ -1446,7 +1344,7 @@
       text-align-last: center !important;
       font-size: 16px !important;
       line-height: 1.4 !important;
-      border-radius: 10px !important;
+      border-radius: var(--radius-lg) !important;
       box-sizing: border-box !important;
     }
 
@@ -1509,13 +1407,6 @@
     min-height: 40px;
   }
 
-  .profileApiKeyButton {
-    width: 100%;
-    min-width: 0;
-    min-height: 40px;
-    justify-content: center;
-  }
-
   .profileColActions :global(.icon-button) {
     width: 100%;
     min-width: 0;
@@ -1538,8 +1429,12 @@
     gap: 6px !important;
   }
 
-  .profileColActions :global(.nextchat-api-config-danger-action) > div:last-child,
-  .profileRowActions :global(.nextchat-api-config-danger-action) > div:last-child {
+  .profileColActions
+    :global(.nextchat-api-config-danger-action)
+    > div:last-child,
+  .profileRowActions
+    :global(.nextchat-api-config-danger-action)
+    > div:last-child {
     display: block !important;
     font-size: 13px;
     white-space: nowrap;
@@ -1547,8 +1442,12 @@
     text-overflow: clip !important;
   }
 
-  .profileColActions :global(.nextchat-api-config-danger-action) > div:first-child,
-  .profileRowActions :global(.nextchat-api-config-danger-action) > div:first-child {
+  .profileColActions
+    :global(.nextchat-api-config-danger-action)
+    > div:first-child,
+  .profileRowActions
+    :global(.nextchat-api-config-danger-action)
+    > div:first-child {
     width: 16px !important;
     height: 16px !important;
     margin: 0 !important;
@@ -1557,8 +1456,14 @@
     justify-content: center !important;
   }
 
-  .profileColActions :global(.nextchat-api-config-danger-action) > div:first-child > svg,
-  .profileRowActions :global(.nextchat-api-config-danger-action) > div:first-child > svg {
+  .profileColActions
+    :global(.nextchat-api-config-danger-action)
+    > div:first-child
+    > svg,
+  .profileRowActions
+    :global(.nextchat-api-config-danger-action)
+    > div:first-child
+    > svg {
     width: 16px !important;
     height: 16px !important;
   }
@@ -1572,7 +1477,7 @@
   .profileYutoModalContainer {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
-    border-radius: 14px;
+    border-radius: var(--radius-2xl);
   }
 
   .profileYutoModalTitle {
@@ -1640,15 +1545,12 @@
     margin: 0 !important;
   }
 
-  .modelUpdateInlineNotice {
-    display: block;
-    margin-top: 6px;
-    margin-left: 0;
-    font-size: 12px;
-  }
-
   .page
-    :global(.window-header .window-actions button[class*="icon-button"]:not([data-close-button="true"])) {
+    :global(
+      .window-header
+        .window-actions
+        button[class*="icon-button"]:not([data-close-button="true"])
+    ) {
     border: 1px solid rgba(100, 116, 139, 0.24) !important;
 
     &:hover,
@@ -1692,7 +1594,7 @@
     min-height: 42px !important;
     margin-right: 0;
     padding: 0 12px !important;
-    border-radius: 9px !important;
+    border-radius: var(--radius-lg) !important;
     font-size: 14px !important;
     font-weight: 600;
   }

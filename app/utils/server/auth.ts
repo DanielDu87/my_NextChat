@@ -1,9 +1,4 @@
-import {
-  randomBytes,
-  scryptSync,
-  timingSafeEqual,
-  createHash,
-} from "node:crypto";
+import { randomBytes, scrypt, timingSafeEqual, createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { ensureSyncStorageSchema, pgQuery } from "./postgres";
 
@@ -126,19 +121,31 @@ export class AuthError extends Error {
   }
 }
 
-function hashPassword(password: string, salt?: string) {
+// 异步 scrypt 在 libuv 线程池中执行，避免登录请求阻塞事件循环。
+function scryptAsync(password: string, salt: string, keylen: number) {
+  return new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, keylen, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
+  });
+}
+
+async function hashPassword(password: string, salt?: string) {
   const resolvedSalt = salt ?? randomBytes(16).toString("hex");
-  const derived = scryptSync(password, resolvedSalt, 64).toString("hex");
+  const derived = (await scryptAsync(password, resolvedSalt, 64)).toString(
+    "hex",
+  );
   return `${resolvedSalt}:${derived}`;
 }
 
-export function verifyPassword(password: string, storedHash: string) {
+export async function verifyPassword(password: string, storedHash: string) {
   const [salt, expectedHash] = String(storedHash || "").split(":");
   if (!salt || !expectedHash) {
     return false;
   }
 
-  const derived = Uint8Array.from(scryptSync(password, salt, 64));
+  const derived = Uint8Array.from(await scryptAsync(password, salt, 64));
   const expected = Uint8Array.from(Buffer.from(expectedHash, "hex"));
   if (derived.length !== expected.length) {
     return false;
@@ -198,7 +205,11 @@ function parseCookieHeader(cookieHeader?: string | null) {
 
     const key = entry.slice(0, separatorIndex).trim();
     const value = entry.slice(separatorIndex + 1).trim();
-    cookieMap.set(key, decodeURIComponent(value));
+    try {
+      cookieMap.set(key, decodeURIComponent(value));
+    } catch {
+      // 畸形 cookie 值按缺失处理，避免整个请求 500
+    }
   });
 
   return cookieMap;
@@ -315,7 +326,7 @@ async function ensureDefaultAdminSeeded() {
     [
       normalizeExternalId(normalizedUsername),
       normalizedUsername,
-      hashPassword(resolveAdminPassword()),
+      await hashPassword(resolveAdminPassword()),
       "管理员",
     ],
   );
@@ -442,7 +453,7 @@ export async function authenticateUser(username: string, password: string) {
     return null;
   }
 
-  if (!verifyPassword(password, row.password_hash)) {
+  if (!(await verifyPassword(password, row.password_hash))) {
     return null;
   }
 
@@ -515,8 +526,10 @@ export async function getAuthContextFromCookies(values: AuthCookieValues) {
 
   let effective = actor;
   const targetUserId = String(values.effectiveUserId || "").trim();
-  if (targetUserId && targetUserId !== actor.id) {
-    const targetUser = await getUserById(targetUserId);
+  // 切换用户 cookie 只对管理员生效：普通用户自行伪造 cookie 不能冒充他人。
+  // 非法 UUID 等查询失败按未切换处理，避免所有接口 500。
+  if (actor.role === "admin" && targetUserId && targetUserId !== actor.id) {
+    const targetUser = await getUserById(targetUserId).catch(() => null);
     if (targetUser?.isActive) {
       effective = targetUser;
     }
@@ -744,7 +757,7 @@ export async function createManagedUser(params: {
     [
       normalizeExternalId(username),
       username,
-      hashPassword(password),
+      await hashPassword(password),
       displayName,
       role,
     ],
@@ -863,7 +876,7 @@ export async function updateManagedUser(params: {
   if (password) {
     idx++;
     sets.push(`password_hash = $${idx}`);
-    values.push(hashPassword(password));
+    values.push(await hashPassword(password));
   }
 
   if (sets.length === 0) {

@@ -155,16 +155,22 @@
 }
 
 :global(html[data-draw-theme="dark"]) .draw-theme-menu,
-:global(html.dark) .draw-theme-menu,
-:global(body.dark) .draw-theme-menu {
+:global(html.dark:not([data-draw-theme="light"])) .draw-theme-menu,
+:global(html:not([data-draw-theme="light"]) body.dark) .draw-theme-menu {
   border-color: rgba(148, 163, 184, 0.26);
   background: color-mix(in srgb, var(--white) 92%, #0f172a);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
 }
 
-:global(html[data-draw-theme="dark"]) .draw-theme-menu :global(.nextchat-menu-option),
-:global(html.dark) .draw-theme-menu :global(.nextchat-menu-option),
-:global(body.dark) .draw-theme-menu :global(.nextchat-menu-option) {
+:global(html[data-draw-theme="dark"])
+  .draw-theme-menu
+  :global(.nextchat-menu-option),
+:global(html.dark:not([data-draw-theme="light"]))
+  .draw-theme-menu
+  :global(.nextchat-menu-option),
+:global(html:not([data-draw-theme="light"]) body.dark)
+  .draw-theme-menu
+  :global(.nextchat-menu-option) {
   color: var(--black);
 
   svg {
@@ -187,27 +193,37 @@
   :global(.nextchat-menu-option:not(.nextchat-menu-option-active):hover),
 :global(html[data-draw-theme="dark"])
   .draw-theme-menu
-  :global(.nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible),
-:global(html.dark)
+  :global(
+    .nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible
+  ),
+:global(html.dark:not([data-draw-theme="light"]))
   .draw-theme-menu
   :global(.nextchat-menu-option:not(.nextchat-menu-option-active):hover),
-:global(html.dark)
+:global(html.dark:not([data-draw-theme="light"]))
   .draw-theme-menu
-  :global(.nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible),
-:global(body.dark)
+  :global(
+    .nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible
+  ),
+:global(html:not([data-draw-theme="light"]) body.dark)
   .draw-theme-menu
   :global(.nextchat-menu-option:not(.nextchat-menu-option-active):hover),
-:global(body.dark)
+:global(html:not([data-draw-theme="light"]) body.dark)
   .draw-theme-menu
-  :global(.nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible) {
+  :global(
+    .nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible
+  ) {
   color: var(--black);
 }
 
 :global(html[data-draw-theme="dark"])
   .draw-theme-menu
   :global(.nextchat-menu-option-active),
-:global(html.dark) .draw-theme-menu :global(.nextchat-menu-option-active),
-:global(body.dark) .draw-theme-menu :global(.nextchat-menu-option-active) {
+:global(html.dark:not([data-draw-theme="light"]))
+  .draw-theme-menu
+  :global(.nextchat-menu-option-active),
+:global(html:not([data-draw-theme="light"]) body.dark)
+  .draw-theme-menu
+  :global(.nextchat-menu-option-active) {
   color: color-mix(in srgb, var(--primary) 78%, #f8fafc);
 }
 
@@ -287,7 +303,7 @@
   flex-direction: column;
   overflow: hidden;
   border: var(--border-in-light);
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   background: var(--white);
   box-shadow: var(--card-shadow);
   padding: 6px;
@@ -301,7 +317,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--second);
 }
 
@@ -334,7 +350,9 @@
 
 .draw-loading-mark {
   animation: draw-loading-float 1.4s ease-in-out infinite;
-  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--primary) 28%, transparent));
+  filter: drop-shadow(
+    0 0 12px color-mix(in srgb, var(--primary) 28%, transparent)
+  );
   transform-origin: center;
 }
 
@@ -367,7 +385,7 @@
   width: 96px;
   height: 96px;
   border: 3px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--black);
   opacity: 0.68;
 
@@ -379,7 +397,7 @@
     left: 50%;
     width: 46px;
     height: 5px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: currentColor;
     transform-origin: center;
   }
@@ -403,8 +421,8 @@
   object-fit: cover;
   opacity: 0;
   transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+    opacity var(--duration-base) ease,
+    transform var(--duration-base) ease;
 
   &:hover {
     opacity: 0.88;
@@ -436,7 +454,7 @@
   box-sizing: border-box;
   overflow: hidden;
   border: 1px solid rgba(220, 38, 38, 0.18);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(220, 38, 38, 0.07);
   color: #b91c1c;
   cursor: pointer;
@@ -463,12 +481,18 @@
   margin: 0;
   padding: 12px 14px;
   border: 1px solid rgba(220, 38, 38, 0.18);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: rgba(220, 38, 38, 0.06);
   color: #991b1b;
   font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono,
-    Courier New, monospace;
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    Liberation Mono,
+    Courier New,
+    monospace;
   font-size: 13px;
   line-height: 1.7;
   user-select: text;
@@ -515,7 +539,7 @@
     justify-content: center;
     overflow: hidden;
     border: var(--border-in-light);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     color: var(--black);
     font-size: 12px;
     line-height: 18px;
@@ -548,7 +572,7 @@
     gap: 3px;
     margin: 0;
     padding: 4px 8px;
-    border-radius: 20px !important;
+    border-radius: var(--radius-4xl) !important;
     box-sizing: border-box;
     font-size: 12px;
     -webkit-tap-highlight-color: transparent;
@@ -572,7 +596,7 @@
   justify-content: center;
   gap: 8px;
   border: var(--border-in-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--white);
   color: var(--black);
   text-align: center;
@@ -645,7 +669,7 @@
   }
 }
 
-@media only screen and (max-width: 600px) {
+@media only screen and (max-width: 650px) {
   .draw-page {
     min-width: 0;
   }
@@ -781,7 +805,7 @@
     height: 22px;
     min-width: 38px;
     min-height: 22px;
-    border-radius: 11px;
+    border-radius: var(--radius-xl);
     padding: 1px 7px;
     font-size: 11px;
     line-height: 16px;
@@ -824,7 +848,7 @@
 
   .draw-preview,
   .img {
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
   }
 
   .draw-panel-scroll :global(button[class*="button_icon-button"]) {
@@ -841,7 +865,9 @@
   }
 
   .draw-panel-scroll
-    :global(button[class*="draw-model-edit-action"][class*="button_icon-button"]) {
+    :global(
+      button[class*="draw-model-edit-action"][class*="button_icon-button"]
+    ) {
     position: relative;
     display: grid !important;
     grid-auto-flow: column;
@@ -854,7 +880,7 @@
     min-height: 38px !important;
     max-height: 38px !important;
     padding: 7px 8px !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     box-sizing: border-box;
     gap: 10px;
     align-items: center !important;
@@ -863,8 +889,7 @@
 
   .draw-panel-scroll
     :global(
-      [class*="draw-model-edit-action"]
-        [class*="button_icon-button-icon"]
+      [class*="draw-model-edit-action"] [class*="button_icon-button-icon"]
     ) {
     flex: 0 0 16px;
     position: static;
@@ -879,9 +904,7 @@
 
   .draw-panel-scroll
     :global(
-      [class*="draw-model-edit-action"]
-        [class*="button_icon-button-icon"]
-        > svg
+      [class*="draw-model-edit-action"] [class*="button_icon-button-icon"] > svg
     ) {
     display: block !important;
     width: 16px !important;
@@ -895,8 +918,7 @@
 
   .draw-panel-scroll
     :global(
-      [class*="draw-model-edit-action"]
-        [class*="button_icon-button-text"]
+      [class*="draw-model-edit-action"] [class*="button_icon-button-text"]
     ) {
     display: inline-flex !important;
     position: static;
@@ -966,13 +988,12 @@
       min-width: 0 !important;
       min-height: 38px !important;
       padding: 7px 8px !important;
-      border-radius: 12px !important;
+      border-radius: var(--radius-xl) !important;
       box-sizing: border-box;
       gap: 10px;
     }
 
-    .draw-sidebar-action-button
-      :global([class*="button_icon-button-icon"]) {
+    .draw-sidebar-action-button :global([class*="button_icon-button-icon"]) {
       display: inline-flex !important;
       flex: 0 0 16px;
       position: static;
@@ -996,8 +1017,7 @@
       }
     }
 
-    .draw-sidebar-action-button
-      :global([class*="button_icon-button-text"]) {
+    .draw-sidebar-action-button :global([class*="button_icon-button-text"]) {
       display: inline-flex !important;
       position: static;
       align-items: center !important;

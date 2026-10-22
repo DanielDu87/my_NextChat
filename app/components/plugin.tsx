@@ -38,6 +38,16 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 
+// 插件内容来自共享插件库或远程 URL，必须按纯文本放进 contentEditable，不能当 HTML 解析。
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function resolvePluginUrl(loadUrl: string) {
   const url = new URL(loadUrl);
 
@@ -485,7 +495,9 @@ export function PluginPage() {
                         className="nextchat-input-control nextchat-no-hover-motion"
                         contentEditable={!isEditingFixedPlugin}
                         dangerouslySetInnerHTML={{
-                          __html: editingPlugin.content,
+                          __html: escapeHtml(
+                            String(editingPlugin.content || ""),
+                          ),
                         }}
                         onBlur={onChangePlugin}
                       ></code>

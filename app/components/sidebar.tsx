@@ -298,22 +298,21 @@ export function NextChatBrandIcon() {
 }
 
 export function useHotKey() {
-  const chatStore = useChatStore();
-
+  // 只在按键时读取 store，不订阅整个聊天 store，避免流式输出每帧重渲染侧边栏。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey) {
         if (e.key === "ArrowUp") {
-          chatStore.nextSession(-1);
+          useChatStore.getState().nextSession(-1);
         } else if (e.key === "ArrowDown") {
-          chatStore.nextSession(1);
+          useChatStore.getState().nextSession(1);
         }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, []);
 }
 
 export function useFixedSideBar() {
@@ -448,7 +447,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const config = useAppConfig();
-  const chatStore = useChatStore();
   const readOnly = useAuthStore((state) => state.readOnly);
   const mcpEnabled = Boolean(getClientConfig()?.enableMcp);
 
@@ -677,7 +675,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                     return;
                   }
                   if (await showConfirm(Locale.Home.DeleteChat)) {
-                    chatStore.deleteCurrentSession();
+                    useChatStore.getState().deleteCurrentSession();
                   }
                 }}
               />

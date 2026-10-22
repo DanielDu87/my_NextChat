@@ -31,8 +31,7 @@
 
 // 余额页与模型获取页在暗色模式下共用同一套按钮。纯白文字对深色卡片
 // 对比过强，局部降为中性浅灰；图标仍沿用按钮类型的原有颜色规则。
-:global(body.dark) .actionButton :global([class*="icon-button-text"]),
-:global(.dark) .actionButton :global([class*="icon-button-text"]) {
+:global(body.dark) .actionButton :global([class*="icon-button-text"]) {
   color: #c8cbd2 !important;
 }
 
@@ -69,7 +68,7 @@
 .card {
   padding: 14px 16px;
   border: 1px solid var(--input-control-border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--white);
   box-shadow: var(--card-shadow);
 }
@@ -82,18 +81,19 @@
     position: relative;
     box-sizing: border-box;
     overflow: hidden;
-    background: radial-gradient(
+    background:
+      radial-gradient(
         220px circle at var(--hover-x) var(--hover-y),
-        color-mix(in srgb, var(--primary) 12%, transparent),
+        var(--hover-glow-color, transparent),
         transparent 62%
       ),
       var(--white);
     background-repeat: no-repeat;
     border-color: var(--input-control-border-color);
     transition:
-      border-color 0.16s ease,
-      box-shadow 0.16s ease,
-      background 0.16s ease;
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease,
+      background var(--duration-fast) ease;
   }
 
   .desktopHoverCard:hover,
@@ -104,8 +104,6 @@
       0 8px 20px rgba(0, 0, 0, 0.035);
   }
 
-  :global(.dark) .desktopHoverCard:hover,
-  :global(.dark) .desktopHoverCard:focus-within,
   :global(body.dark) .desktopHoverCard:hover,
   :global(body.dark) .desktopHoverCard:focus-within {
     border-color: color-mix(in srgb, var(--primary) 82%, transparent);
@@ -215,7 +213,7 @@
   padding: 0 12px;
   background: #e8e8e8;
   border: 2px solid #d0d0d0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   color: #333;
@@ -228,8 +226,7 @@
   justify-content: center;
 }
 
-:global(body.dark) .inputLabel,
-:global(.dark) .inputLabel {
+:global(body.dark) .inputLabel {
   background: #3a3a3a;
   border-color: #555;
   color: #e0e0e0;
@@ -245,7 +242,7 @@
 }
 
 .inputWithLabel input {
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   flex: 1;
 }
 
@@ -262,8 +259,7 @@
   flex: initial !important;
 }
 
-:global(body.dark) .inputWithLabel input,
-:global(.dark) .inputWithLabel input {
+:global(body.dark) .inputWithLabel input {
   background: #2a2a2a;
 }
 
@@ -295,7 +291,7 @@
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--black-alpha-70);
+  color: var(--text-muted);
   cursor: pointer;
   user-select: none;
 }
@@ -307,7 +303,7 @@
 }
 
 .newApiUserToggle:hover {
-  color: var(--black-alpha-80);
+  color: var(--text-secondary);
 }
 
 .newApiUserInput {
@@ -341,7 +337,7 @@
 
 .hint {
   margin-top: 8px;
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -371,97 +367,13 @@
   font-weight: 700;
 }
 
-.attemptsDetail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  border-radius: 4px;
-}
-
-:global(.dark) .attemptsDetail {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.attemptItem {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px;
-  border-radius: 2px;
-  font-family: monospace;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.attemptOk {
-  color: #0f8a3b;
-  background: rgba(15, 138, 59, 0.08);
-}
-
-.attemptFail {
-  color: #666;
-  background: rgba(0, 0, 0, 0.02);
-}
-
-:global(.dark) .attemptOk {
-  color: #4ade80;
-  background: rgba(74, 222, 128, 0.08);
-}
-
-:global(.dark) .attemptFail {
-  color: #aaa;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.attemptStatus {
-  flex-shrink: 0;
-  width: 14px;
-}
-
-.attemptPath {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attemptAuth {
-  flex-shrink: 0;
-  color: #888;
-}
-
-:global(.dark) .attemptAuth {
-  color: #888;
-}
-
-.attemptStatusCode {
-  flex-shrink: 0;
-  min-width: 28px;
-  text-align: right;
-  font-weight: 700;
-}
-
-.attemptReason {
-  flex-shrink: 0;
-  color: #e07020;
-  font-style: italic;
-}
-
-:global(.dark) .attemptReason {
-  color: #fbbf24;
-}
-
 .empty {
   padding: 48px;
-  color: var(--black-alpha-60);
+  color: var(--text-muted);
   text-align: center;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 650px) {
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;
@@ -562,7 +474,7 @@
 
   .card {
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
   }
 
   .headerRow {
@@ -635,14 +547,6 @@
     width: 100% !important;
     min-width: 0 !important;
     flex: initial !important;
-  }
-
-  .customUrlRow {
-    flex-wrap: wrap;
-  }
-
-  .customUrlRow :global(.nextchat-input-control) {
-    flex: 1 1 100%;
   }
 
   .row .actionButton.actionButton.actionButton {

@@ -16,7 +16,7 @@
       }
     }
 
-    @media screen and (max-width: 600px) {
+    @media screen and (max-width: 650px) {
       flex-direction: column;
 
       .search-bar {
@@ -44,7 +44,7 @@
 
   .messages {
     margin-top: 20px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     border: var(--border-in-light);
     overflow: hidden;
 
@@ -90,7 +90,7 @@
   }
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 650px) {
   .message-selector {
     .messages {
       margin-top: 14px;

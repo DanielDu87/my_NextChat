@@ -26,18 +26,6 @@
           color: transparent;
         }
       }
-
-      .mask-filter-lang {
-        height: 100%;
-        margin-left: 10px;
-      }
-
-      .mask-create {
-        height: 100%;
-        margin-left: 10px;
-        box-sizing: border-box;
-        min-width: 80px;
-      }
     }
 
     .mask-item {
@@ -88,14 +76,14 @@
       .mask-actions {
         display: flex;
         flex-wrap: nowrap;
-        transition: all ease 0.3s;
+        transition: all ease var(--duration-slow);
       }
 
-      @media screen and (max-width: 600px) {
+      @media screen and (max-width: 650px) {
         display: flex;
         flex-direction: column;
         padding-bottom: 10px;
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         margin-bottom: 20px;
         box-shadow: var(--card-shadow);
 
@@ -117,10 +105,10 @@
   background: color-mix(in srgb, var(--primary) 18%, transparent);
   color: inherit;
   padding: 0 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 650px) {
   .mask-page {
     :global(.window-header) {
       align-items: center;

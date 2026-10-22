@@ -2,7 +2,7 @@ import { getServerSideConfig } from "@/app/config/server";
 import { TENCENT_BASE_URL, ModelProvider } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/api/auth";
+import { auth, requireApiSession } from "@/app/api/auth";
 import { getHeader } from "@/app/utils/tencent";
 import { DEFAULT_BROWSER_USER_AGENT } from "../user-agent";
 
@@ -16,6 +16,11 @@ async function handle(
 
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
+  }
+
+  const unauthorized = await requireApiSession(req);
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const authResult = auth(req, ModelProvider.Hunyuan);
@@ -37,7 +42,8 @@ async function handle(
 export const GET = handle;
 export const POST = handle;
 
-export const runtime = "edge";
+// 登录校验依赖 pg 连接池，只能运行在 nodejs runtime（standalone 自托管下 edge 无额外收益）。
+export const runtime = "nodejs";
 export const preferredRegion = [
   "arn1",
   "bom1",

@@ -18,7 +18,7 @@
   flex: 1 1 auto;
   min-height: 240px;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
 }
 
 .promptLoadingText {
@@ -60,12 +60,8 @@
 
 // 在 .page 作用域内覆盖 globals 的 .nextchat-default-button / .nextchat-action-button
 // hover 颜色，避免 dark 模式下 var(--primary) 的青绿色边框显得偏蓝。
-.page
-  :global(button[class*="nextchat-default-button"]:not(:disabled):hover),
-.page
-  :global(
-    button[class*="nextchat-action-button"]:not(:disabled):hover
-  ) {
+.page :global(button[class*="nextchat-default-button"]:not(:disabled):hover),
+.page :global(button[class*="nextchat-action-button"]:not(:disabled):hover) {
   border-color: var(--close-button-idle-border-color) !important;
   box-shadow: var(--card-shadow) !important;
 }
@@ -171,7 +167,7 @@
     color: #94a3b8;
     opacity: 1;
     text-align: center;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--duration-fast) ease;
   }
 
   &:focus::placeholder {
@@ -217,18 +213,12 @@
   color: #e5e7eb;
 }
 
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .searchInputIcon {
-    color: #e5e7eb;
-  }
-}
-
 .promptTable {
   width: calc(100% - 40px);
   max-width: calc(100% - 40px);
   margin: 10px 20px 20px;
   border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 14px;
+  border-radius: var(--radius-2xl);
   background: var(--white);
   overflow: hidden;
   box-sizing: border-box;
@@ -324,7 +314,7 @@
   background-color: color-mix(in srgb, var(--primary) 34%, transparent);
   color: var(--black);
   padding: 0 3px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-weight: 700;
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--primary) 82%, transparent);
 }
@@ -428,7 +418,7 @@
   }
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 650px) {
   .page {
     min-width: 0;
   }
@@ -500,7 +490,7 @@
   .textarea {
     min-height: 44px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     font-size: 16px;
   }
 
@@ -516,7 +506,7 @@
       color: #94a3b8;
       opacity: 1;
       text-align: center;
-      transition: opacity 0.15s ease;
+      transition: opacity var(--duration-fast) ease;
     }
 
     &:focus::placeholder {
@@ -544,7 +534,7 @@
     padding: 18px;
     margin-bottom: 14px;
     border: 1px solid rgba(148, 163, 184, 0.42);
-    border-radius: 16px;
+    border-radius: var(--radius-3xl);
     background: var(--white);
     box-shadow: var(--card-shadow);
   }

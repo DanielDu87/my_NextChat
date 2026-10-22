@@ -67,23 +67,20 @@ SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNE
 ### 提交规则
 
 1. **不主动暂存或提交**
-
    - 修改完成后不自动执行 `git add`
    - 只有用户明确说“暂存”或“提交/commit”时才暂存
    - 暂存不授权 push 或部署
 
 2. **不主动提交**
-
    - 开发过程中不自动提交代码
    - 完成修改后不主动提交
    - 只有当用户明确说"提交"、"commit"、"提交代码"等明确指令时才执行提交
 
 3. **提交后自动推送**
-
    - 执行 `git commit` 后自动执行 `git push`
    - 确保本地提交同步到远程仓库
 
-3. **提交信息格式**
+4. **提交信息格式**
    ```
    YYYY-MM-DD HH:MM 提交内容描述
    ```
@@ -150,6 +147,8 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 yarn app:dev
 ```
 
+**本地容器 DNS**：`nextchat-dev` 通过 `NODE_OPTIONS --require scripts/dev-ipv4-first-dns.cjs` 与 `UV_THREADPOOL_SIZE=64` 规避宿主机代理不应答 AAAA 导致的解析卡顿和数据库连接超时，详见 `docs/development.md`「本地容器 DNS 与线程池」。
+
 **Code Interpreter 本地容器**：本地热加载必须同时启用 `--profile codeinterpreter-local`，对应的服务名固定为 `codeinterpreter-local`，端口 5000 通过 Docker 内网暴露给 `nextchat-dev`，不要在宿主机再做端口映射。`app/store/plugin.ts` 在 `localhost` / `127.0.0.1` 时自动把 NextChat `CodeInterpreter` 插件请求转发到 `http://codeinterpreter-local:5000`，因此不启动这个 profile 会得到 `proxy_fetch_failed` 502。镜像基于 `scripts/code-interpreter/Dockerfile` 构建，名称固定为 `codeinterpreter-api-local:latest`；只有改了 Dockerfile、扩展依赖（`requirements.nextchat.txt`）或运行时入口（`nextchat_runtime.py`）才需要 `--build` 重新构建镜像，普通业务代码改动走 nextchat-dev 热加载即可，Code Interpreter 容器无需重启。生产环境请继续使用 `scripts/code-interpreter/docker-compose.codeinterpreter.yml`。
 
 停止开发环境：
@@ -190,7 +189,7 @@ npx tsc --noEmit --pretty false
 yarn build
 ```
 
-说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本，不要再把它们作为默认验证命令。`devDependencies` 中仍残留 `jest` / `@testing-library/*` 相关包但无对应配置和脚本，不可直接运行测试。
+说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本，不要再把它们作为默认验证命令。`jest` / `@testing-library/*` 相关包也已从 `devDependencies` 移除（2026-10-21）。
 
 补充约定：后续浏览器手工测试、回归测试默认切换到 `ccc` 用户后再执行，除非用户明确指定其他账号。
 
@@ -233,20 +232,20 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 项目使用 Zustand 进行状态管理，配合自定义持久化存储。需要持久化的 store 在 `app/constant.ts` 的 `StoreKey` 注册（`Chat`/`Plugin`/`Access`/`Config`/`ModelCache`/`Prompt`/`Update`/`Sync`/`DrawList`/`Mcp`），store 实现位于 `app/store/`：
 
-| Store | 文件 | 职责 |
-| --- | --- | --- |
-| Chat | `chat.ts` | 核心聊天状态（会话、消息、记忆压缩、附件） |
-| Config | `config.ts` | 应用配置（模型、主题、TTS、实时语音） |
-| Access | `access.ts` | API 访问控制（API Key、访问码、多 Key 配置） |
-| Auth | `auth.ts` | 用户认证状态（登录态、当前用户） |
-| DrawList | `draw.ts` | 绘画任务与历史 |
-| Mask | `mask.ts` | Prompt 模板（Masks） |
-| Prompt | `prompt.ts` | 自定义 Prompt |
-| ModelCache | `model-cache.ts` | 模型列表缓存 |
-| Sync | `sync.ts` | 聊天记录与配置同步（Database/WebDAV 等） |
-| Plugin | `plugin.ts` | 插件 |
-| Mcp | — | MCP 工具（`app/mcp/`，非持久化 store） |
-| Update | `update.ts` | 版本更新 |
+| Store      | 文件             | 职责                                         |
+| ---------- | ---------------- | -------------------------------------------- |
+| Chat       | `chat.ts`        | 核心聊天状态（会话、消息、记忆压缩、附件）   |
+| Config     | `config.ts`      | 应用配置（模型、主题、TTS、实时语音）        |
+| Access     | `access.ts`      | API 访问控制（API Key、访问码、多 Key 配置） |
+| Auth       | `auth.ts`        | 用户认证状态（登录态、当前用户）             |
+| DrawList   | `draw.ts`        | 绘画任务与历史                               |
+| Mask       | `mask.ts`        | Prompt 模板（Masks）                         |
+| Prompt     | `prompt.ts`      | 自定义 Prompt                                |
+| ModelCache | `model-cache.ts` | 模型列表缓存                                 |
+| Sync       | `sync.ts`        | 聊天记录与配置同步（Database/WebDAV 等）     |
+| Plugin     | `plugin.ts`      | 插件                                         |
+| Mcp        | —                | MCP 工具（`app/mcp/`，非持久化 store）       |
+| Update     | `update.ts`      | 版本更新                                     |
 
 聊天 store 进一步拆分为辅助模块（非独立 store）：`chat-defaults.ts`、`chat-index.ts`、`chat-session.ts`。
 
@@ -261,7 +260,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 2. **localStorage** - 纯本地偏好存储
    - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态。
-   - 持久化封装见 `app/utils/store.ts`（`createPersistStore`）、`app/utils/database-state-storage.ts`、`indexeddb-state-storage.ts`。
+   - 持久化封装见 `app/utils/store.ts`（`createPersistStore`）、`indexeddb-state-storage.ts`。
 
 ### 数据库 Repository 层（服务端）
 
@@ -278,7 +277,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 - `provider-balance-repository.ts` / `provider-balance.ts` - 供应商余额快照、管理 API Key 密文存取与上游探测
 - `app-settings-repository.ts` - 应用设置
 - `api-config-backup-repository.ts` / `api-config-backup-scheduler.ts` - API 配置自动备份与恢复（含余额条目；新备份写单层 state，历史双层 Zustand 持久化 state 兼容读取）
-- `sync-app-user.ts` / `sync-user.ts` / `auth.ts` / `site-password.ts` - 用户与认证
+- `sync-app-user.ts` / `sync-user.ts` / `auth.ts` - 用户与认证（切换用户 cookie 仅对管理员生效；共享插件库仅管理员可写）
 - `access-store-security.ts` / `sync-secrets.ts` - 访问安全与密钥
 
 ### API 路由
@@ -286,7 +285,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 服务端路由位于 `app/api/`：
 
 - `[provider]/[...path]` - **AI 提供商代理**（核心聊天/补全/图像转发）
-- `proxy/[...path]` - 通用代理
+- `proxy/[...path]` - 通用代理（要求登录；拒绝链路本地/云元数据地址；仅主机名精确为 `api.openai.com` 时附带服务端 OpenAI Key）
   - 处理跨域 + 浏览器直连被 CORS 拦截：所有自定义 (Custom) 上游绝对地址的请求都经由此处，由 `x-base-url` header 决定最终目标。
   - **baseURL 自适应**：若上游对原始 URL 返回 `text/html`（说明上游把请求当成了网站路径，常见于 OpenRouter 这类 API 入口在 `/api/v1` 下的服务），会自动尝试在 baseURL 末尾追加 `/api/v1`、`/api`、`/v1` 等常见前缀，同时把 path 中可能多余的 `v1/` 段剥掉再试。命中后写入进程内 Map 缓存 `原始 baseURL → 适配后 baseURL`，避免每次都探测。命中失败会返回 502 + `proxy_baseurl_adaptation_failed` JSON，客户端会展示中文提示和已尝试的候选列表。
   - 实现位置：`app/api/proxy.ts`（`fetchWithBaseUrlAdaptation` + `buildBaseUrlCandidates` + `globalBaseUrlAdaptCache`）。
@@ -301,7 +300,6 @@ yarn db:seed-chat-performance     # 性能压测数据填充
   - `models/refresh` - 模型刷新、`balance` - 余额查询
 - `auth/` - 登录（`login`）、登出（`logout`）、当前用户（`me`）
 - `admin/` - 用户管理（`users`）、切换用户（`switch-user`）
-- `site-auth` - 站点访问密码
 - `config` - 客户端配置下发
 - 聚合模型元数据服务：`aihubmix`、`ocoolai`、`toapis`、`yuto`、`tencent`
 - `webhook/sync-models` - 模型同步 webhook
@@ -318,23 +316,23 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 各平台实现位于 `app/client/platforms/`，实现统一的 `chat()`、`speech()`、`usage()`、`models()` 等方法：
 
-| 文件 | 提供商 |
-| --- | --- |
-| `openai.ts` | OpenAI / Azure / 兼容协议 |
-| `anthropic.ts` | Claude |
-| `google.ts` | Gemini |
-| `deepseek.ts` | DeepSeek |
-| `glm.ts` | 智谱 ChatGLM |
-| `alibaba.ts` | 通义千问 |
-| `bytedance.ts` | 豆包 |
-| `baidu.ts` | 文心一言 |
-| `tencent.ts` | 腾讯混元 |
-| `moonshot.ts` | 月之暗面 |
-| `iflytek.ts` | 讯飞星火 |
-| `siliconflow.ts` | 硅基流动 |
-| `xai.ts` | Grok (xAI) |
-| `ai302.ts` | 302.AI |
-| `local.ts` | 本地模型 |
+| 文件             | 提供商                    |
+| ---------------- | ------------------------- |
+| `openai.ts`      | OpenAI / Azure / 兼容协议 |
+| `anthropic.ts`   | Claude                    |
+| `google.ts`      | Gemini                    |
+| `deepseek.ts`    | DeepSeek                  |
+| `glm.ts`         | 智谱 ChatGLM              |
+| `alibaba.ts`     | 通义千问                  |
+| `bytedance.ts`   | 豆包                      |
+| `baidu.ts`       | 文心一言                  |
+| `tencent.ts`     | 腾讯混元                  |
+| `moonshot.ts`    | 月之暗面                  |
+| `iflytek.ts`     | 讯飞星火                  |
+| `siliconflow.ts` | 硅基流动                  |
+| `xai.ts`         | Grok (xAI)                |
+| `ai302.ts`       | 302.AI                    |
+| `local.ts`       | 本地模型                  |
 
 新增平台：在 `app/constant.ts` 的 `ServiceProvider` 添加枚举，在 `platforms/` 新建实现，并在 `ClientApi` 构造函数中添加对应 case。
 
@@ -351,8 +349,8 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 ### 认证与多用户
 
 - **`app/store/auth.ts`** - 登录态、当前用户。
-- **`app/api/auth/`**（login/logout/me）、**`app/api/admin/`**（用户管理/切换）、**`app/api/site-auth`**（站点访问密码）。
-- **`app/utils/server/`**：`auth.ts`、`site-password.ts`、`sync-app-user.ts`、`sync-user.ts`。
+- **`app/api/auth/`**（login/logout/me）、**`app/api/admin/`**（用户管理/切换）。`[provider]` 模型代理、`proxy`、`tencent`、`model-probe` 均要求登录（`app/api/auth.ts` 的 `requireApiSession`）。
+- **`app/utils/server/`**：`auth.ts`、`sync-app-user.ts`、`sync-user.ts`。
 - 组件：`app/components/auth.tsx`、`site-password-gate.tsx`、`user-menu.tsx`。
 
 ### 余额查询与 API 配置备份
@@ -368,7 +366,6 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 - **API 配置备份包含余额条目**：API 配置自动备份 / 手动备份 / 恢复前保护备份都会把当前用户的 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema 版本 = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回。旧备份（无 `balanceEntries`）仍然兼容，只恢复 access-control；新备份统一写单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - **实现位置**：`app/utils/server/api-config-backup-repository.ts`（`buildApiConfigBackupPayload` / `writeApiConfigBalanceEntries`）、`app/api/db/api-config-backups/route.ts`、`app/api/db/sync/[key]/route.ts`（access-control PUT 时自动备份）、`app/utils/server/api-config-backup-scheduler.ts`（后台定时备份）。
 - **备份落在独立备份数据库**：所有站内备份表（`backup_api_config_settings` / `backup_api_config_snapshots` / `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`）由 `app/utils/server/backup-postgres.ts` 的 `ensureBackupStorageSchema()` 在 `BACKUP_DATABASE_URL` 或 `BACKUP_PGHOST/BACKUP_PGDATABASE/BACKUP_PGUSER/BACKUP_PGPASSWORD` 指向的**独立备份库**（如 `nextchat_backup`）中创建，与主业务库分离；备份表不再有指向 `app_users` 的外键，改用冗余 `external_user_id`，用户信息在需要时回主库 `app_users` 关联。未配置 `BACKUP_*` 时备份功能不可用，但 sync 主流程与两个 scheduler 都已 try/catch，不会影响正常同步。
-- **主库旧备份表自动清理**：主库里旧的 `chat_backup_*` / `api_config_backup*` 表已迁到独立备份库，`postgres.ts` 的 `cleanupLegacyMainDbBackupTables()` 会在两个自动备份 scheduler 触发时一次性 `drop table if exists` 清掉这批遗留表（进程内只执行一次，失败只记日志）。
 - **对话记录备份落点**：对话已经拆成 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`（均在主业务库）。站内对话备份写入上述独立备份库的 `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`，不要塞进 `backup_api_config_snapshots`。生产灾备继续以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准，**主库和备份库都要纳入备份范围**。
 
 ### 对话增量备份
@@ -402,7 +399,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 位于 `app/components/`：
 
-- **聊天**：`chat.tsx`（主界面）、`chat-list.tsx`、`chat.module.scss`、`search-chat.tsx`、`new-chat.tsx`。
+- **聊天**：`chat.tsx`（主界面）、`chat-list.tsx`、`chat.module.scss`、`file-preview.tsx` + `file-preview.module.scss`（附件预览）、`search-chat.tsx`、`new-chat.tsx`。
 - **侧边栏**：`sidebar.tsx`、`sidebar-context.ts`。
 - **设置/配置**：`settings.tsx`、`api-config.tsx`、`model-config.tsx`、`add-model-modal.tsx`、`tts-config.tsx`。
 - **Mask**：`mask.tsx`；**Artifacts**：`artifacts.tsx`；**导出**：`exporter.tsx`、`message-selector.tsx`。
@@ -413,7 +410,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 ### MCP (Model Context Protocol)
 
-位于 `app/mcp/`：`actions.ts`（动作执行与工具获取）、`client.ts`（客户端管理）、`types.ts`。通过 `ENABLE_MCP` 环境变量启用。
+位于 `app/mcp/`：`actions.ts`（动作执行与工具获取）、`client.ts`（客户端管理）、`types.ts`。通过 `ENABLE_MCP` 环境变量启用。`actions.ts` 是公开可调用的 Server Actions，每个导出函数都必须先校验 `ENABLE_MCP` 与登录态，增删改/重启 MCP 服务器仅管理员可操作。
 
 ### 插件系统
 
@@ -479,7 +476,19 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 - `.nextchat-primary-button`：主操作实心按钮（如"保存"、"添加"）。
 - `.nextchat-action-button`：列表行内可点击操作按钮（如"查看并编辑"）。
 - `.nextchat-danger-button`：危险描边按钮（如"删除"）。
-- `.nextchat-close-button`：38×38 关闭按钮（`IconButton` 设 `close` 时自动应用），SVG 统一使用 `currentColor` 并排除暗色模式的全局反相滤镜。
+- `.nextchat-close-button`：38×38 关闭按钮（`IconButton` 设 `close` 时自动应用），SVG 统一使用 `currentColor`。
+
+### 设计 token（2026-10-22 统一）
+
+`globals.scss` 的 `:root` 与 `light` / `dark` mixin 定义全站 token，组件样式优先引用 token，不再写新的字面量：
+
+- **文字层级**：`--text-secondary`、`--text-muted`、`--text-placeholder`（对白底对比度约 7.0 / 4.5 / 3.6）；`--surface-muted`、`--border-subtle`。
+- **语义色**：`--danger-color` / `--danger-color-bg` / `--danger-75-bg`、`--backup-green` / `--backup-green-75-bg`、`--primary-button-*` 保持原有取值（2026-10-22 按用户要求恢复按钮原配色）。
+- **圆角** `--radius-xs…5xl`（4/6/8/10/12/14/16/20/24px）与 `--radius-pill`；**动效** `--duration-fast/base/slow`（0.15/0.2/0.3s）。
+- **层级** `--z-raised … --z-top-above`（浏览器会把 > 2147483647 的 z-index 截断成同一值，禁止再写超大数字）。
+- **图标** `--icon-color`：`app/icons` 单色图标的 `#333` 统一改为 `var(--icon-color, #333)`；暗色模式不再对 SVG 做全局 `invert(0.5)`，`.no-dark` 仅保留为样式钩子。
+- **断点**：移动端统一 `max-width: 650px`（与 `app/utils.ts` 的 `MOBILE_MAX_WIDTH` 一致），平板/窄窗口 `768px`。
+- **暗色模式**只由 html/body 上的 `.light` / `.dark` class 驱动，不写 `@media (prefers-color-scheme)` 分支；全局样式文件（非 `.module.scss`）里禁止使用 `:global()`，否则整条规则会失效。
 
 约定：
 
@@ -495,7 +504,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 
 `app/utils/` 关键模块：
 
-- **存储/同步**：`store.ts`、`database-state-storage.ts`、`indexeddb-state-storage.ts`、`sync.ts`、`chat-sync.ts`、`chat-sync-state.ts`、`chat-persist-storage.ts`、`sync-store-keys.ts`、`sync-user-client.ts`、`sync-tab-coordination.ts`
+- **存储/同步**：`store.ts`、`indexeddb-state-storage.ts`、`sync.ts`、`chat-sync.ts`、`chat-sync-state.ts`、`chat-persist-storage.ts`、`sync-store-keys.ts`、`sync-user-client.ts`、`sync-tab-coordination.ts`
 - **聊天**：`chat.ts`、`chat-failover.ts`、`chat-session-merge.ts`、`new-chat.ts`、`stream.ts`、`token.ts`、`clone.ts`、`merge.ts`
 - **模型**：见上文「模型管理」
 - **绘画参数**：`draw-model-params.ts`

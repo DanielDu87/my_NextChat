@@ -134,8 +134,8 @@ const PromptManagerPage = dynamic(
 
 function resolvePreloadTheme(): "dark" | "light" {
   if (typeof window === "undefined") return "light";
-  return (window as any).__NEXTCHAT_PRELOAD_THEME__ === "light"
-    ? "light"
+  return (window as any).__NEXTCHAT_PRELOAD_THEME__ === "dark"
+    ? "dark"
     : "light";
 }
 
@@ -143,9 +143,11 @@ function resolveEffectiveTheme(
   theme: string,
   hasHydrated = true,
 ): "dark" | "light" {
-  if (theme === "dark" || theme === "light") return theme;
   if (typeof window === "undefined") return "light";
+  // 水合前 store 里还是默认主题，必须沿用 layout 预加载脚本按 localStorage 算出的主题，
+  // 否则深色用户会经历 dark → light → dark 的首屏闪烁。
   if (!hasHydrated) return resolvePreloadTheme();
+  if (theme === "dark" || theme === "light") return theme;
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";

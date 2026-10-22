@@ -4,7 +4,11 @@
   flex-direction: column;
 }
 
-.page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+.page
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea
+  ) {
   cursor: text !important;
 }
 
@@ -32,9 +36,11 @@
   background: transparent;
 }
 
-.content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
+.content
+  > :global([class*="list"])
+  > :global([class*="list-item"]):global(.nextchat-hover-card) {
   border: var(--border-in-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 
   :global(.nextchat-list-header) {
     align-items: flex-start !important;
@@ -84,7 +90,7 @@
   justify-content: center;
   gap: 6px;
   min-height: 38px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -125,7 +131,7 @@
 }
 .historySubTitle {
   margin-top: 4px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: normal;
   line-height: 1.5;
@@ -143,7 +149,7 @@
   gap: 16px;
   padding: 14px;
   border: var(--border-in-light);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 .backupTitle {
   font-weight: 600;
@@ -151,7 +157,7 @@
 .backupMeta,
 .empty {
   margin-top: 5px;
-  color: var(--black-2);
+  color: var(--text-muted);
   font-size: 12px;
 }
 .empty {
@@ -175,7 +181,7 @@
   display: flex;
   gap: 8px;
 }
-@media (max-width: 700px) {
+@media (max-width: 650px) {
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;
@@ -213,21 +219,30 @@
     padding: 12px;
   }
 
-  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
+  .content
+    > :global([class*="list"])
+    > :global([class*="list-item"]):global(.nextchat-hover-card) {
     background-image: none !important;
   }
 
-  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
+  .content
+    > :global([class*="list"])
+    > :global([class*="list-item"]):global(.nextchat-hover-card) {
     transition: none !important;
   }
 
-  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:hover),
-  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:focus-within),
-  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:active) {
+  .content
+    > :global([class*="list"])
+    > :global([class*="list-item"]):global(.nextchat-hover-card:hover),
+  .content
+    > :global([class*="list"])
+    > :global([class*="list-item"]):global(.nextchat-hover-card:focus-within),
+  .content
+    > :global([class*="list"])
+    > :global([class*="list-item"]):global(.nextchat-hover-card:active) {
     border: var(--border-in-light) !important;
     box-shadow: none !important;
   }
-
 
   .settings {
     grid-template-columns: repeat(2, 1fr);
@@ -302,7 +317,7 @@
     flex-direction: column;
     gap: 10px;
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
   }
 
   .backupTitle {
@@ -330,7 +345,7 @@
     height: 40px !important;
     padding: 0 10px !important;
     font-size: 13px !important;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
   }
 
   .backupActions

@@ -31,27 +31,6 @@
     box-sizing: border-box;
     padding: 0 20px;
   }
-
-  .icon-left,
-  .icon-right {
-    width: 46px;
-    height: 46px;
-    font-size: 36px;
-    background: var(--second);
-    border-radius: 50%;
-    padding: 2px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    &:hover {
-      opacity: 0.8;
-    }
-  }
-
-  &.mobile {
-    display: none;
-  }
 }
 
 .pulse {

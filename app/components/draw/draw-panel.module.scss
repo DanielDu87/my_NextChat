@@ -96,42 +96,6 @@
   }
 }
 
-.draw-model-edit-icon {
-  display: inline-flex;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-
-  svg {
-    display: block;
-    width: 16px;
-    height: 16px;
-  }
-
-  svg [style*="stroke"] {
-    stroke: var(--black) !important;
-    stroke-opacity: 0.9 !important;
-  }
-
-  svg [style*="fill"] {
-    fill: var(--black) !important;
-    fill-opacity: 0.9 !important;
-  }
-
-  svg > g {
-    transform: none !important;
-  }
-}
-
-.draw-model-edit-text {
-  display: inline-flex;
-  align-items: center;
-  line-height: 16px;
-}
-
 .draw-model-editor {
   display: flex;
   flex-direction: column;
@@ -190,8 +154,15 @@
   color: var(--chat-input-disabled-placeholder);
   cursor: default;
   font-family:
-    ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas,
-    Liberation Mono, Courier New, monospace;
+    ui-monospace,
+    SFMono-Regular,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    Liberation Mono,
+    Courier New,
+    monospace;
   font-size: 12px;
   line-height: 18px;
   user-select: text;
@@ -265,7 +236,6 @@
     min-height: 20px;
   }
 
-
   textarea,
   input {
     width: 100%;
@@ -295,9 +265,9 @@
 
 /* 暗色主题下保留 draw 的"加重"禁用样式（globals 默认较淡，draw 想要更显眼的 #2b2b2b）。
    同时复盖 input/select 的浅色边框，避免 html[data-draw-theme=dark] 时仍保留浅色 border。 */
-:global(html.dark) .ctrl-param-item,
+:global(html.dark:not([data-draw-theme="light"])) .ctrl-param-item,
 :global(html[data-draw-theme="dark"]) .ctrl-param-item,
-:global(body:not(.light)) .ctrl-param-item {
+:global(html:not([data-draw-theme="light"]) body:not(.light)) .ctrl-param-item {
   textarea:disabled,
   input:disabled {
     pointer-events: none;
@@ -308,43 +278,16 @@
   }
 }
 
-:global(html.dark) .draw-log-textarea,
+:global(html.dark:not([data-draw-theme="light"])) .draw-log-textarea,
 :global(html[data-draw-theme="dark"]) .draw-log-textarea,
-:global(body:not(.light)) .draw-log-textarea {
+:global(html:not([data-draw-theme="light"]) body:not(.light))
+  .draw-log-textarea {
   background: #2b2b2b;
   color: rgba(245, 245, 245, 0.56);
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-:global(html[data-draw-theme="dark"]) .draw-model-edit-icon {
-  svg {
-    filter: none !important;
-  }
-
-  svg [style*="stroke"] {
-    stroke: var(--black) !important;
-    stroke-opacity: 1 !important;
-  }
-
-  svg [style*="fill"] {
-    fill: var(--black) !important;
-    fill-opacity: 1 !important;
-  }
-}
-
-:global(html[data-draw-theme="light"]) .draw-model-edit-icon {
-  svg [style*="stroke"] {
-    stroke: var(--black) !important;
-    stroke-opacity: 0.86 !important;
-  }
-
-  svg [style*="fill"] {
-    fill: var(--black) !important;
-    fill-opacity: 0.86 !important;
-  }
-}
-
-@media only screen and (max-width: 600px) {
+@media only screen and (max-width: 650px) {
   .draw-panel {
     gap: 16px;
   }
@@ -373,7 +316,7 @@
     padding: 7px 8px !important;
     flex: 0 0 auto;
     gap: 10px;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     box-sizing: border-box;
     font-size: 12px;
   }

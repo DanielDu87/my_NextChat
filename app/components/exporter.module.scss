@@ -35,7 +35,7 @@
 
 .steps {
   background-color: var(--gray);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   padding: 5px;
   position: relative;
@@ -59,8 +59,8 @@
       width: 0%;
       height: 100%;
       background-color: var(--white);
-      transition: all ease 0.3s;
-      border-radius: 8px;
+      transition: all ease var(--duration-slow);
+      border-radius: var(--radius-md);
     }
   }
 
@@ -74,11 +74,11 @@
       position: relative;
       padding: 5px 10px;
       border: 1px solid transparent;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       font-size: 14px;
       color: var(--black);
       opacity: 1;
-      transition: all ease 0.3s;
+      transition: all ease var(--duration-slow);
       cursor: pointer;
       user-select: none;
 
@@ -108,7 +108,7 @@
       .step-index {
         background-color: var(--gray);
         border: var(--border-in-light);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         display: inline-block;
         padding: 0px 5px;
         font-size: 12px;
@@ -146,7 +146,7 @@
   }
 
   .preview-body {
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     padding: 20px;
     box-shadow: var(--card-shadow) inset;
     background-color: var(--gray);
@@ -156,7 +156,7 @@
     .chat-info {
       background-color: var(--second);
       padding: 20px;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
@@ -191,7 +191,7 @@
         font-size: 12px;
         color: var(--primary);
         padding: 4px 15px;
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background-color: var(--white);
         box-shadow: var(--card-shadow);
 
@@ -210,7 +210,7 @@
       }
 
       .body {
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 8px 10px;
         max-width: calc(100% - 104px);
         border: var(--border-in-light);
@@ -233,8 +233,8 @@
           margin-top: 10px;
         }
 
-        @media screen and (max-width: 600px) {
-          $image-width: calc(calc(100vw/2)/var(--image-count));
+        @media screen and (max-width: 650px) {
+          $image-width: calc(calc(100vw / 2) / var(--image-count));
 
           .message-image-multi {
             width: $image-width;
@@ -242,13 +242,13 @@
           }
 
           .message-image {
-            max-width: calc(100vw/3*2);
+            max-width: calc(100vw / 3 * 2);
           }
         }
 
-        @media screen and (min-width: 600px) {
-          $max-image-width: calc(900px/3*2/var(--image-count));
-          $image-width: calc(80vw/3*2/var(--image-count));
+        @media screen and (min-width: 651px) {
+          $max-image-width: calc(900px / 3 * 2 / var(--image-count));
+          $image-width: calc(80vw / 3 * 2 / var(--image-count));
 
           .message-image-multi {
             width: $image-width;
@@ -258,7 +258,7 @@
           }
 
           .message-image {
-            max-width: calc(100vw/3*2);
+            max-width: calc(100vw / 3 * 2);
           }
         }
 
@@ -269,7 +269,7 @@
         .message-image,
         .message-image-multi {
           box-sizing: border-box;
-          border-radius: 10px;
+          border-radius: var(--radius-lg);
           border: rgba($color: #888, $alpha: 0.2) 1px solid;
         }
       }
@@ -295,10 +295,11 @@
     }
   }
 
-  .default-theme {}
+  .default-theme {
+  }
 }
 
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 650px) {
   .export-message-modal {
     --modal-padding: 14px;
 
@@ -346,7 +347,7 @@
       min-width: 112px;
       max-width: 42vw;
       flex: 0 0 auto;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
     }
 
     :global(select[class*="select-with-icon-select"]) {
@@ -354,7 +355,7 @@
       min-width: 112px;
       min-height: 34px;
       padding: 0 34px 0 12px;
-      border-radius: 10px;
+      border-radius: var(--radius-lg);
       font-size: 14px;
       line-height: 34px;
     }

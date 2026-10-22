@@ -1,0 +1,759 @@
+/* 文件预览（PDF / Word / Excel / 文本）弹窗与内容样式；由 file-preview.tsx 与 hooks/useFilePreview.tsx 使用。
+   附件卡片 attach-file-* 与聊天输入区共用，仍保留在 chat.module.scss。 */
+
+.file-preview-modal {
+  width: min(960px, calc(100vw - 32px));
+  max-width: none;
+  height: min(760px, calc(var(--full-height) - 48px));
+  max-height: calc(var(--full-height) - 48px);
+  overflow: hidden;
+
+  :global(.modal-content) {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  :global(.modal-footer:empty) {
+    display: none;
+  }
+}
+
+.file-preview-modal-office {
+  height: min(720px, calc(var(--full-height) - 48px));
+
+  :global(.modal-content) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .file-preview-root {
+    height: 100%;
+  }
+
+  .file-preview-body {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+// 文档（docx）预览：采用与 office 相同的「确定高度」布局链（modal 固定高度、
+// file-preview-root height:100%、body flex:1），高度链确定后 docx-preview-root
+// 的 flex:1 才能稳定撑满正文区。
+//
+// ⚠️ ui-lib 的 `.modal-container .modal-content { max-height: 40vh; padding: 20px }`
+// 与本组件覆盖同为 (0,2,0) 特异性，源码顺序打平后 40vh 会赢，正文区被截断到
+// 40vh、下方露出大片空白（PDF / Excel / Word 三种预览都受影响）。修复统一放在
+// 下面的 `.file-preview-modal.file-preview-modal`（双写类名，特异性 (0,3,0)）里。
+.file-preview-modal-document {
+  height: min(720px, calc(var(--full-height, 100dvh) - 48px));
+
+  .file-preview-root {
+    height: 100%;
+  }
+
+  .file-preview-body {
+    flex: 1;
+    min-height: 0;
+    // 兜底灰色画布：任何未被 docx-preview-root 覆盖的区域也是文档查看器灰底。
+    background: #f8fafc;
+  }
+
+  .docx-preview-root {
+    // 关键：撑满正文区，灰色画布铺满弹窗、加载卡片能在整个高度内居中，
+    // 长文档超出后由自身滚动。
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+// 统一覆盖 ui-lib `.modal-content` 的 `max-height: 40vh` / `padding: 20px`：
+// 双写 `.file-preview-modal.file-preview-modal` 把特异性提到 (0,3,0)，稳定盖过
+// ui-lib 的 (0,2,0)。PDF、Excel、Word 三种预览弹窗都带 `.file-preview-modal`，
+// 因此一并生效，正文内容盒不再被截断到 40vh。
+.file-preview-modal.file-preview-modal :global(.modal-content) {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.file-preview-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--white);
+}
+
+.file-preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--white);
+}
+
+.file-preview-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 42px;
+  padding: 9px 14px;
+  border-bottom: var(--border-in-light);
+  color: var(--black);
+  opacity: 0.68;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+// 新标题栏样式
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: var(--border-in-light);
+  background: var(--white);
+}
+
+.file-preview-header-icon {
+  flex-shrink: 0;
+}
+
+// 下载按钮与关闭按钮同尺寸，但不复用关闭动作的语义类
+.file-preview-header-download {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  margin-right: -4px;
+  padding: 0;
+  border: 2px solid var(--close-button-idle-border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--white);
+  box-shadow: var(--card-shadow);
+  color: var(--black);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible,
+  &:active {
+    border-color: var(--primary);
+    background-color: var(--input-control-hover-bg);
+    box-shadow: none;
+    outline: none;
+  }
+
+  svg {
+    width: 16px;
+    height: 16px;
+    filter: none;
+  }
+}
+
+.file-preview-header-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--black);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 新元信息栏样式
+.file-preview-meta-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: var(--border-in-light);
+  background: var(--white);
+}
+
+.file-preview-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--black);
+  background: var(--surface-muted);
+  border-radius: var(--radius-xs);
+}
+
+// object/iframe 包装器，让 object fallback 到 iframe
+.file-preview-frame-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-preview-frame {
+  width: 100%;
+  // 撑满包装器（进而撑满正文区），不再用固定 640px 高度导致下方留白。
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: #f8fafc;
+}
+
+.file-preview-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--white);
+  color: var(--black);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.file-preview-state {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  overflow: auto;
+  background: #f8fafc;
+}
+
+// 状态卡片 - 独立布局，不再依赖 flex 容器
+.file-preview-state-card {
+  width: min(520px, 100%);
+  // 用 margin auto 实现垂直居中，且卡片超高时顶部不会被裁剪、仍可滚动。
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: var(--radius-3xl);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  .file-preview-state-icon {
+    margin-bottom: 0;
+
+    .attach-file-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-lg);
+    }
+  }
+}
+
+.file-preview-state-title {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.file-preview-state-file-name {
+  max-width: 100%;
+  padding: 4px 12px;
+  background: #f1f5f9;
+  border-radius: var(--radius-pill);
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.file-preview-state-message {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  max-width: 100%;
+}
+
+.file-preview-state-progress {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-preview-state-progress-track {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.file-preview-state-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: inherit;
+  transition: width var(--duration-base) ease;
+}
+
+.file-preview-state-progress-label {
+  color: #64748b;
+  font-size: 12px;
+  text-align: center;
+}
+
+.file-preview-state-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.file-preview-state-meta-item {
+  padding: 2px 10px;
+  background: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: var(--radius-pill);
+  color: #64748b;
+  font-size: 11px;
+}
+
+.file-preview-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.file-preview-state-action-primary {
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  }
+}
+
+.file-preview-state-action-secondary {
+  padding: 8px 20px;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+
+  &:hover {
+    background: #f8fafc;
+    border-color: rgba(148, 163, 184, 0.6);
+  }
+}
+
+// 暗色模式
+:global(.dark),
+:global(body.dark) {
+  .file-preview-state {
+    background: #24292f;
+  }
+
+  .file-preview-state-card {
+    background: #2f343b;
+    border-color: rgba(100, 116, 139, 0.4);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .file-preview-state-title {
+    color: #f8fafc;
+  }
+
+  .file-preview-state-file-name {
+    background: rgba(100, 116, 139, 0.2);
+    color: #94a3b8;
+  }
+
+  .file-preview-state-message {
+    color: #94a3b8;
+  }
+
+  .file-preview-state-progress-track {
+    background: rgba(100, 116, 139, 0.3);
+  }
+
+  .file-preview-state-meta-item {
+    background: rgba(100, 116, 139, 0.2);
+    border-color: rgba(100, 116, 139, 0.3);
+    color: #94a3b8;
+  }
+
+  .file-preview-state-action-secondary {
+    background: rgba(43, 48, 56, 0.9);
+    color: #e2e8f0;
+    border-color: rgba(100, 116, 139, 0.4);
+
+    &:hover {
+      background: rgba(60, 66, 76, 0.9);
+      border-color: rgba(148, 163, 184, 0.5);
+    }
+  }
+}
+
+@media only screen and (max-width: 650px) {
+  .file-preview-state {
+    padding: 16px;
+  }
+
+  .file-preview-state-card {
+    padding: 16px;
+    gap: 10px;
+  }
+}
+
+// 已迁移到 .file-preview-state-card 内的样式
+
+:global(.dark),
+:global(body.dark) {
+  .file-preview-root {
+    background: #2f343b;
+  }
+
+  .file-preview-meta {
+    border-bottom-color: var(--border-in-light);
+    color: var(--black);
+  }
+
+  .file-preview-header {
+    background: #2f343b;
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .file-preview-header-title {
+    color: #f8fafc;
+  }
+
+  .file-preview-meta-bar {
+    background: #2f343b;
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .file-preview-meta-badge {
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+  }
+
+  .file-preview-frame {
+    background: #24292f;
+  }
+
+  .file-preview-frame-wrapper {
+    background: #24292f;
+  }
+
+  .file-preview-state {
+    background: linear-gradient(180deg, #383d45 0%, #24292f 100%);
+    color: #e2e8f0;
+  }
+
+  .file-preview-state-title {
+    color: #f8fafc;
+  }
+
+  .file-preview-state-message,
+  .file-preview-state-progress-label {
+    color: var(--black);
+    opacity: 0.82;
+  }
+
+  .file-preview-state-progress-track {
+    background: rgba(100, 116, 139, 0.28);
+  }
+
+  .file-preview-state-actions {
+    button,
+    a {
+      border-color: rgba(100, 116, 139, 0.54);
+      background: rgba(43, 48, 56, 0.92);
+      color: #e2e8f0;
+
+      &:hover {
+        border-color: rgba(148, 163, 184, 0.72);
+        background: rgba(74, 85, 104, 0.74);
+      }
+    }
+  }
+}
+
+.docx-preview-root {
+  // 占满父容器
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--white);
+  box-sizing: border-box;
+}
+
+.docx-preview-root-loading {
+  display: flex;
+  flex-direction: column;
+
+  .docx-preview-container {
+    position: absolute;
+    inset: 0;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.docx-preview-container.docx-preview-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 100% !important;
+  // 不要写死 height: 100% / flex: 1：长 Word 文档需要让外层 docx-preview-root
+  // 上下滚动，内层 section.docx 按自身内容高度增长；这里只保证宽度撑满容器。
+  flex: 0 0 auto;
+  margin: 0 auto;
+
+  :global(.docx-wrapper) {
+    background: transparent;
+    padding: 0;
+    width: 100%;
+  }
+
+  :global(section.docx) {
+    // 渲染出来的 Word 页面：宽随容器自适应（配合 applyDocxAutoScale 缩放），
+    // 短文档至少铺满预览正文区，长文档继续按内容增长并由外层滚动。
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    // 覆盖 docx-preview 写入的 72pt 90pt 内联页边距，避免窄预览区正文过度收缩。
+    padding: clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px) !important;
+    height: auto;
+    min-height: 100%;
+    flex: 0 0 auto;
+    margin-left: auto;
+    margin-right: auto;
+    // 内容部分固定白底，light / dark 一致
+    background: #fff;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 2px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  }
+}
+
+@media only screen and (max-width: 768px) {
+  .file-preview-state {
+    padding: 16px;
+  }
+
+  // Office 预览在窄屏压缩：DOCX 减小外边距和内文字号，
+  // XLSX 缩小表格字号、单元格 padding 和列最小宽度。
+  .docx-preview-root {
+    padding: 12px 8px;
+  }
+
+  .docx-preview-container {
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  // 移动端 Word 页面缩放交由 JS `applyDocxAutoScale` 按容器宽度等比适配
+  // （见 chat.tsx），这里不再写死 zoom / padding，保持与桌面一致的真实排版。
+
+  .xlsx-preview-tabs {
+    padding: 6px 8px;
+    gap: 4px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .xlsx-preview-tab {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .xlsx-preview-sheet {
+    // 顶部 padding 至少 12px，避免表格 box-shadow 向上溢出 8px 后盖住 tabs 底部分割线。
+    padding: 12px 6px 6px;
+
+    table {
+      font-size: 11px;
+    }
+
+    td,
+    th {
+      min-width: 56px;
+      max-width: 200px;
+      padding: 3px 5px;
+    }
+  }
+}
+
+.xlsx-preview-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f8fafc;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+  // align-items: stretch 确保直接子元素（如 .file-preview-state）被拉伸到容器高度。
+  align-items: stretch;
+}
+
+.xlsx-preview-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  background: #fff;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.xlsx-preview-tab {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  background: #fff;
+  color: var(--black);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.xlsx-preview-tab-active {
+  border-color: #34a853;
+  background: rgba(52, 168, 83, 0.12);
+  color: #15803d;
+  font-weight: 600;
+}
+
+.xlsx-preview-sheet {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+  // 顶部 12px 给表格 box-shadow（向上 8px）留出空间，避免溢出盖住 tabs 底边线；
+  // 左右下 6px 与移动端对齐、保持视觉一致。
+  padding: 12px 6px 6px;
+
+  table {
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto;
+    border-collapse: collapse;
+    // 内容部分固定白底黑字，light / dark 一致（不用 --white/--black，
+    // 因为它们在暗色主题下会被反转成深底浅字）。
+    background: #fff;
+    color: #1f2937;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  }
+
+  td,
+  th {
+    min-width: 80px;
+    max-width: 320px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    padding: 5px 8px;
+    vertical-align: top;
+    white-space: pre-wrap;
+    background: #fff;
+    color: #1f2937;
+  }
+
+  th {
+    background: #f1f5f9;
+    color: #1f2937;
+    font-weight: 600;
+  }
+}
+
+:global(.dark),
+:global(body.dark) {
+  .docx-preview-root {
+    border-top-color: rgba(71, 85, 105, 0.52);
+    background: #24292f;
+  }
+
+  .docx-preview-root-loading {
+    background: #24292f;
+  }
+
+  .xlsx-preview-root {
+    border-top-color: rgba(71, 85, 105, 0.52);
+    background: #24292f;
+  }
+
+  .xlsx-preview-tabs {
+    border-bottom-color: rgba(71, 85, 105, 0.52);
+    background: var(--white);
+  }
+
+  .xlsx-preview-tab {
+    border-color: rgba(148, 163, 184, 0.45);
+    background: var(--white);
+    color: var(--black);
+
+    &:hover {
+      background: var(--hover-color);
+      border-color: rgba(100, 116, 139, 0.45);
+    }
+  }
+
+  .xlsx-preview-tab-active {
+    border-color: rgba(52, 168, 83, 0.72);
+    background: rgba(34, 197, 94, 0.16);
+    color: #86efac;
+  }
+
+  .xlsx-preview-sheet table {
+    // 内容部分保持白底黑字（见基础规则），暗色下仅加深阴影，不改底色/文字色。
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.32);
+  }
+}

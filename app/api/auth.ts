@@ -1,7 +1,31 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "../config/server";
 import md5 from "spark-md5";
 import { ACCESS_CODE_PREFIX, ModelProvider } from "../constant";
+import { AuthError, requireAuthContext } from "../utils/server/auth";
+
+/**
+ * 模型代理路由要求站内登录：访问码检查已停用，未登录请求不带 Key 时会被注入
+ * 服务端系统 Key，必须先确认请求来自已登录用户。返回 null 表示通过。
+ */
+export async function requireApiSession(req: NextRequest) {
+  if (req.method === "OPTIONS") {
+    return null;
+  }
+  try {
+    await requireAuthContext(req);
+    return null;
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
+    return NextResponse.json(
+      {
+        error: true,
+        msg: status === 500 ? "auth_check_failed" : "unauthorized",
+      },
+      { status },
+    );
+  }
+}
 
 function getIP(req: NextRequest) {
   let ip = req.ip ?? req.headers.get("x-real-ip");

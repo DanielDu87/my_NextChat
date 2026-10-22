@@ -33,8 +33,8 @@
   width: min(var(--session-config-control-width, 260px), 45%) !important;
   max-width: 45% !important;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
 
   &:has(input[type="range"]:not(:disabled)):hover {
     border-color: var(--input-control-hover-border-color);
@@ -74,7 +74,7 @@
 }
 
 textarea.model-config-control {
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 textarea.model-config-control:disabled {
@@ -191,7 +191,7 @@ textarea.model-config-control:disabled {
     border-style: solid !important;
     border-width: 2px !important;
     border-color: var(--model-config-disabled-border, #aeb6c0) !important;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     padding: 0 10px;
     background: var(--model-config-disabled-bg, #d9dee5) !important;
     color: var(--model-config-disabled-text, #6f7782) !important;

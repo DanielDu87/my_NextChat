@@ -141,10 +141,9 @@ function getApiKey(keys?: string) {
   const randomIndex = Math.floor(Math.random() * apiKeys.length);
   const apiKey = apiKeys[randomIndex];
   if (apiKey) {
+    // 只记录序号，不得把 Key 明文写入日志。
     console.log(
-      `[Server Config] using ${randomIndex + 1} of ${
-        apiKeys.length
-      } api key - ${apiKey}`,
+      `[Server Config] using ${randomIndex + 1} of ${apiKeys.length} api key`,
     );
   }
 
