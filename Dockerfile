@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # NextChat Dockerfile - 优化版
 # 支持本地开发热加载和服务器生产部署
@@ -82,7 +82,7 @@ ENV HUSKY=0
 # 预装开发依赖到镜像缓存目录，避免每次容器启动都完整重新安装
 COPY package.json yarn.lock ./
 COPY vendor ./vendor
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+RUN --mount=type=cache,id=nextchat-yarn-cache,target=/usr/local/share/.cache/yarn \
     yarn install --frozen-lockfile --ignore-engines --network-timeout 600000 && \
     mkdir -p /opt/nextchat-node_modules && \
     cp -a node_modules/. /opt/nextchat-node_modules/ && \
@@ -115,7 +115,7 @@ COPY vendor ./vendor
 # --ignore-scripts 抑制 canvas 等 OPTIONAL 原生模块触发 node-gyp 重新下载 node
 # headers（线上历史日志显示 unofficial-builds.nodejs.org 偶发 ETIMEDOUT），
 # canvas 仅用于 scripts/generate-ico.js 的一次性 favicon 生成，生产运行时不需要。
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+RUN --mount=type=cache,id=nextchat-yarn-cache,target=/usr/local/share/.cache/yarn \
     yarn install --frozen-lockfile --ignore-scripts --network-timeout 600000
 
 # =============================================================================
@@ -133,7 +133,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # 构建应用
-RUN --mount=type=cache,target=/app/.next/cache \
+RUN --mount=type=cache,id=nextchat-next-build-cache,target=/app/.next/cache \
     yarn build && \
     # 清理不需要的文件减小镜像体积
     rm -rf node_modules/.cache && \

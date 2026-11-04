@@ -46,9 +46,9 @@ typings
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variable files
-.env
-.env.test
+# dotenv environment variable files：真实环境配置不得进入构建上下文
+.env*
+!.env*.example
 
 # local env files
 .env*.local

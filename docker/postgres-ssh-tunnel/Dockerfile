@@ -3,7 +3,8 @@
 ARG ALPINE_IMAGE=alpine:3.21
 FROM ${ALPINE_IMAGE}
 
-RUN sed -i 's#https\?://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories && \
+ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
+RUN sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
     apk add --no-cache openssh-client sshpass
 
 COPY docker/postgres-ssh-tunnel/entrypoint.sh /entrypoint.sh

@@ -270,7 +270,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 
 ## 当前约定
 
-- 本地 Docker 开发统一使用 `dev` profile 和 `./scripts/docker-compose-safe.sh`。
+- 本地 Docker 开发统一入口为根目录 `./run`（不接受参数），内部沿用 `./scripts/docker-compose-safe.sh`，启用 `dev + ssh-tunnel + codeinterpreter-local`；菜单及环境变量详见 [开发指南](docs/development.md#本地-docker-一键启动)。普通业务修改仍依赖热加载，不必反复执行 `run`。
 - 普通业务代码修改后依赖热加载，不重启容器、不重建镜像。
 - 生产部署默认使用宝塔 DockerSite：`docker-compose.baota.yml` + `.env.baota`。
 - 页面 URL 统一使用普通路径，不再新增 `/#/...` hash 链接。

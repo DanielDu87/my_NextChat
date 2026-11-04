@@ -4,6 +4,33 @@
 >
 > 相关文档：[README.md](../README.md)、[AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md)、[docs/db/nextchat-postgres-schema.sql](db/nextchat-postgres-schema.sql)。
 
+## 本地 Docker 一键启动
+
+准备好 `.env.docker`（参考 `.env.docker.example`，不要覆盖已有文件）及 SSH 私钥后，在仓库根目录执行 `./run`。脚本不接受命令行参数：
+
+- 菜单 `1`：所有镜像逐项先用对应专属 URL，来源失败先官方，官方仍失败再对适用的其它公共候选测速选源；包括 tag 成功但当前平台子摘要失败的场景。官方鉴权失败停止公共回退，避免泄露潜在私有镜像请求。
+- 菜单 `2`：专属及全局公共候选一起全量测速，选最快成功源重新构建。
+- 菜单 `3`：只读审计，不写文件、不构建、不启动 Docker daemon。
+- `q` 退出；第二级密码显示菜单保留全局模板行为，当前没有本地凭据型服务，因此不会输出远端数据库密码。
+- 非终端逐字符读取：`printf 3 | ./run` 审计，`printf 12 | ./run` 专属覆盖优先并启动，`printf 22 | ./run` 全量测速并启动；空 stdin 默认为 `1`、掩码。
+
+每次选择启动均先审计，再探测软件依赖源，经 `scripts/docker-compose-safe.sh` 注入 `BUILDX_CONFIG` 和当前提交号，调用全局 `docker-build-fastest.sh`，然后 `up -d --no-build --wait`，最后核验宿主 HTTP。不复制全局镜像候选或专属地址，不覆盖全局缓存 TTL。npm、PyPI、Alpine、Debian 包源单独探测，不把镜像覆盖探测宣称为包下载测速；shell 或环境文件中的显式包源变量优先，地址不回显。
+
+`run` 固定载入 `docker-compose.yml + docker-compose.run.yml`，仅启用 `dev + ssh-tunnel + codeinterpreter-local`。Web 端口只监听 `127.0.0.1`，临时使用免登录用户 `ccc`，主库和备份库均通过 SSH 隧道连接远端；不会启用本地 PostgreSQL、修改 `.env.docker` 或生产配置。**应用启动会触发现有数据库初始化及后台备份任务，不能将它视为纯只读操作。** 普通代码修改继续热加载，无需重复运行 `run`。
+
+可通过环境变量覆盖 `NEXTCHAT_ENV_FILE`、`SSH_TUNNEL_HOST/PORT/USER/KEY_FILE`、`PORT`、`BUILD_CACHE_DIR`、`RUN_START_TIMEOUT`（默认 300 秒）、`RUN_VERIFY_URLS`，以及全局入口路径 `DOCKER_FASTEST_WRAPPER`、`DOCKER_PULL_WRAPPER`。软件包源覆盖使用 `NPM_REGISTRY`、`PIP_INDEX_URL`、`ALPINE_MIRROR`、`APT_MIRROR`。构建缓存位于 `.cache/docker-build/<服务名>`，已从 Git 和构建上下文排除。`!override` 端口合并需要 Docker Compose 2.24.4 或更高版本。
+
+另开终端查看状态/日志时，使用相同配置（自定义环境文件时相应修改）：
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.run.yml \
+COMPOSE_PROFILES=dev,ssh-tunnel,codeinterpreter-local \
+COMPOSE_ENV_FILES=.env.docker \
+BUILD_CACHE_DIR="$PWD/.cache/docker-build" \
+./scripts/docker-compose-safe.sh ps
+# 把末尾 ps 换成 logs -f nextchat-dev 查看日志；不要添加 --build 绕过 run。
+```
+
 ## 对话失败自动故障转移
 
 `app/store/chat.ts` 统一负责首次请求和后续候选请求；普通聊天不再区分“普通模式”和旧系列“自动模式”。请求遇到网络异常、非成功 HTTP、API 错误 payload 或空响应后，会清空失败正文并沿 `app/utils/chat-failover.ts` 生成的候选队列串行重试。当前模型之后，先尝试当前 API 供应商中与当前模型同厂商的其他模型，再按模型厂商显示名称首字母递增尝试当前供应商的其他厂商模型，最后按供应商显示名称首字母递增尝试其他供应商；其他供应商内部同样按模型厂商分组和模型选择器顺序展开。厂商归属统一使用 `getModelDisplayGroup()`，厂商与供应商名称排序使用 `compareProviderDisplayNames()`，每个厂商内的模型使用 `compareModelsBySeriesVersion()`，保证最新版本优先且与模型选择器显示逻辑一致。用户停止或页面中断时不继续跨模型重放；已执行工具调用后的失败会立即保留 blocked 状态并终止候选队列，不得重放原始请求或重复执行具有副作用的工具。

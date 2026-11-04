@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+# NextChat 本地开发入口；以全局 docker-compose-run.sh 模板为起点。
+# 仅启动本地开发服务，不部署生产、不执行数据库初始化或迁移命令。
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+cd "$SCRIPT_DIR"
+if [ -t 1 ]; then clear; fi
+
+# 固定开发配置，避免继承外部生产 profile；两阶段使用相同的 Compose 环境。
+export COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml:$SCRIPT_DIR/docker-compose.run.yml"
+export COMPOSE_PROFILES=dev,ssh-tunnel,codeinterpreter-local
+export COMPOSE_ENV_FILES="${NEXTCHAT_ENV_FILE:-$SCRIPT_DIR/.env.docker}"
+export BUILD_CACHE_DIR="${BUILD_CACHE_DIR:-$SCRIPT_DIR/.cache/docker-build}"
+export SSH_TUNNEL_HOST="${SSH_TUNNEL_HOST:-42.193.15.117}"
+export SSH_TUNNEL_PORT="${SSH_TUNNEL_PORT:-222}"
+export SSH_TUNNEL_USER="${SSH_TUNNEL_USER:-root}"
+export SSH_TUNNEL_KEY_FILE="${SSH_TUNNEL_KEY_FILE:-$HOME/.ssh/id_ed25519}"
+# 这些覆盖仅存在于本次进程，不改写真实 .env 或生产配置。
+export NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc
+export DATABASE_URL= BACKUP_DATABASE_URL=
+export PGHOST=postgres-ssh-tunnel BACKUP_PGHOST=postgres-ssh-tunnel
+export PGPORT=5432 BACKUP_PGPORT=5432
+SAFE_COMPOSE="$SCRIPT_DIR/scripts/docker-compose-safe.sh"
+BUILD_FASTEST="${DOCKER_FASTEST_WRAPPER:-$HOME/ai_coding_rules/scripts/docker-build-fastest.sh}"
+PULL_PREFERRED="${DOCKER_PULL_WRAPPER:-$HOME/ai_coding_rules/scripts/docker-pull.sh}"
+GLOBAL_BENCH_CACHE="${DOCKER_MIRROR_CACHE_FILE:-$HOME/ai_coding_rules/config/docker-mirror-last-benchmark.json}"
+WAIT_TIMEOUT="${RUN_START_TIMEOUT:-300}"
+BENCH_MODE=auto
+CHECK=0
+ALL_CREDENTIALS=0
+PHASE_STARTED=0
+INTERACTIVE=0
+[ -t 0 ] && INTERACTIVE=1
+log() { printf '[run] %s\n' "$*"; }
+fail() {
+	printf '[run] %s\n' "$*" >&2
+	exit 1
+}
+phase() {
+	if [ "$PHASE_STARTED" -eq 1 ]; then printf '\n'; fi
+	PHASE_STARTED=1
+	printf '============================================================\n'
+	log "阶段：$*"
+	printf '============================================================\n'
+}
+read_key() {
+	local key=''
+	if [ "$INTERACTIVE" -eq 1 ]; then
+		IFS= read -r -n 1 -s -p '[run]> ' key </dev/tty 2>/dev/null || key=''
+		printf '\n' >&2
+	else
+		IFS= read -r -n 1 key 2>/dev/null || key=''
+	fi
+	printf '%s' "$key"
+}
+invalid_key() {
+	[ "$INTERACTIVE" -eq 1 ] || fail "无效选项：'$1'（$2）。"
+	log "无效输入：'$1'（$2，请重选）"
+}
+print_last_benchmark() {
+	local summary
+	if [ ! -f "$GLOBAL_BENCH_CACHE" ] || ! command -v jq >/dev/null 2>&1; then
+		printf '上次测速：无可用全局缓存\n'
+		return
+	fi
+	# 不显示地址；失败缓存不阻塞菜单，不回显原始 JSON。
+	summary="$(jq -er 'select(.winner.name != null) |
+      "  名称：\(.winner.name)\n  网速：\(.winner.throughput_mib_s) MiB/s\n  时间：\(.recorded_at_iso | fromdate | localtime | strftime("%Y-%m-%d %H:%M"))"' "$GLOBAL_BENCH_CACHE" 2>/dev/null)" || summary='  无有效记录'
+	printf '上次测速（仅历史参考）：\n%s\n' "$summary"
+}
+print_menu() {
+	printf '============================================================\n'
+	log 'NextChat 本地 Docker 开发'
+	print_last_benchmark
+	printf '  [1] 专属优先，失败先官方、再其它候选测速\n'
+	printf '  [2] 全局所有候选测速，选最快源构建启动\n'
+	printf '  [3] 只读审计（不写文件、不构建、不启动）\n'
+	printf '  [q] 退出\n'
+	printf '============================================================\n'
+}
+choose_options() {
+	local key
+	while true; do
+		[ "$INTERACTIVE" -eq 0 ] || print_menu
+		key="$(read_key)"
+		case "$key" in
+		1)
+			BENCH_MODE=auto
+			break
+			;;
+		2)
+			BENCH_MODE=all
+			break
+			;;
+		3)
+			CHECK=1
+			log '选项 3：只读审计'
+			return
+			;;
+		q | Q)
+			log '已退出。'
+			exit 0
+			;;
+		'') [ "$INTERACTIVE" -eq 1 ] || break ;;
+		*) invalid_key "$key" '可选 1/2/3/q' ;;
+		esac
+	done
+	while true; do
+		if [ "$INTERACTIVE" -eq 1 ]; then
+			printf '密码显示：[1] 明文 / [2] 掩码（默认）\n'
+		fi
+		key="$(read_key)"
+		case "$key" in
+		1)
+			ALL_CREDENTIALS=1
+			break
+			;;
+		2 | '' | $'\n' | $'\r') break ;;
+		*) invalid_key "$key" '可选 1/2' ;;
+		esac
+	done
+	log "构建模式：${BENCH_MODE}；每次启动均重新构建。"
+}
+[ "$#" -eq 0 ] || fail 'run 不接受命令行参数，请直接执行 ./run 按菜单选择。'
+choose_options
+[[ "$WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || fail 'RUN_START_TIMEOUT 必须为正整数。'
+
+load_config() {
+	# 不走安全包装脚本：该包装脚本会创建 BUILDX_CONFIG 目录，不适用于只读审计。
+	compose_json="$(docker compose config --format json 2>/dev/null)" || fail 'Compose 配置无效；请检查环境文件及 Compose 配置（未回显敏感值）。'
+	project_name="$(printf '%s' "$compose_json" | jq -er '.name')"
+	services="$(printf '%s' "$compose_json" | jq -r '.services | keys[]')"
+	[ "$services" = "$(printf '%s\n' codeinterpreter-local nextchat-dev postgres-ssh-tunnel)" ] || fail '配置包含非预期服务；只允许三个本地开发服务。'
+}
+container_host_ports() {
+	local cid
+	while IFS= read -r cid; do
+		[ -n "$cid" ] || continue
+		docker port "$cid" 2>/dev/null | awk -F: 'NF > 1 && $NF ~ /^[0-9]+$/ {print $NF}'
+	done
+}
+audit_ports() {
+	local ids cid owner project_ports='' other_ports='' ports port listeners
+	if docker info >/dev/null 2>&1; then
+		ids="$(docker ps -q)" || fail '无法读取运行中的容器。'
+		while IFS= read -r cid; do
+			[ -n "$cid" ] || continue
+			owner="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$cid")"
+			ports="$(printf '%s\n' "$cid" | container_host_ports)"
+			if [ "$owner" = "$project_name" ]; then
+				project_ports="${project_ports}${ports}"$'\n'
+			else
+				other_ports="${other_ports}${ports}"$'\n'
+			fi
+		done <<<"$ids"
+	else
+		log 'Docker daemon 未就绪；只读审计不启动运行时，启动后会重新检查端口。'
+	fi
+	while IFS= read -r port; do
+		[ -n "$port" ] || continue
+		if printf '%s' "$other_ports" | grep -qx "$port"; then
+			fail "端口 ${port} 已由其他项目容器占用。"
+		elif printf '%s' "$project_ports" | grep -qx "$port"; then
+			log "端口 ${port} 由本项目容器占用，启动时将更新。"
+		else
+			listeners="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+			[ -z "$listeners" ] || fail "端口 ${port} 被本机进程占用，请自行检查后重试。"
+		fi
+	done < <(printf '%s' "$compose_json" | jq -r '.services[].ports // [] | .[] | .published // empty | tostring')
+}
+phase '启动配置检查'
+for dependency in docker jq curl lsof; do
+	command -v "$dependency" >/dev/null 2>&1 || fail "缺少依赖：${dependency}。"
+done
+[ -f "$COMPOSE_ENV_FILES" ] || fail '缺少本地环境文件；请参考 .env.docker.example 准备 .env.docker。'
+[ -f "$BUILD_FASTEST" ] || fail '缺少全局构建入口，可用 DOCKER_FASTEST_WRAPPER 指定。'
+[ -f "$PULL_PREFERRED" ] || fail '缺少全局拉取入口，可用 DOCKER_PULL_WRAPPER 指定。'
+[ -x "$SAFE_COMPOSE" ] || fail '缺少可执行的 scripts/docker-compose-safe.sh。'
+[ -r "$SSH_TUNNEL_KEY_FILE" ] && [ -f "$SSH_TUNNEL_KEY_FILE" ] || fail 'SSH 隧道私钥文件不存在或不可读；不会读取或输出私钥内容。'
+load_config
+while IFS=$'\t' read -r service context dockerfile; do
+	[ -d "$context" ] && [ -f "$context/$dockerfile" ] || fail "服务 ${service} 的构建上下文或 Dockerfile 缺失。"
+done < <(printf '%s' "$compose_json" | jq -r '.services | to_entries[] | select(.value.build) | [.key, .value.build.context, (.value.build.dockerfile // "Dockerfile")] | @tsv')
+cache_parent="$BUILD_CACHE_DIR"
+while [ ! -e "$cache_parent" ]; do cache_parent="$(dirname "$cache_parent")"; done
+[ -d "$cache_parent" ] && [ -w "$cache_parent" ] || fail '构建缓存目录不可写。'
+audit_ports
+log '配置、构建输入、SSH 私钥存在性及宿主端口审计通过。'
+[ "$CHECK" -eq 0 ] || exit 0
+
+ensure_docker_runtime() {
+	docker info >/dev/null 2>&1 && return
+	local candidates=() name context waited=0
+	[ ! -d /Applications/OrbStack.app ] || candidates+=(OrbStack)
+	[ ! -d /Applications/Docker.app ] || candidates+=(Docker)
+	! command -v colima >/dev/null 2>&1 || candidates+=(colima)
+	context="$(docker context show 2>/dev/null || true)"
+	case "${#candidates[@]}" in
+	0) fail '未找到可启动的 Docker 运行时；请检查 docker context ls 和本机运行时安装。' ;;
+	1) name="${candidates[0]}" ;;
+	*)
+		case "$context" in
+		orbstack) name=OrbStack ;;
+		desktop-linux) name=Docker ;;
+		colima) name=colima ;;
+		*) fail "存在多个运行时候选（${candidates[*]}），无法唯一确定，请先启动目标运行时。" ;;
+		esac
+		printf '%s\n' "${candidates[@]}" | grep -qx "$name" || fail '当前 context 对应的运行时未安装。'
+		;;
+	esac
+	log "启动本机运行时 ${name}。"
+	if [ "$name" = colima ]; then colima start; else open -a "$name"; fi
+	until docker info >/dev/null 2>&1; do
+		[ "$waited" -lt 90 ] || fail 'Docker daemon 等待 90 秒后仍未就绪。'
+		sleep 3
+		waited=$((waited + 3))
+	done
+}
+phase 'Docker运行环境检查'
+ensure_docker_runtime
+audit_ports
+log "Docker 已就绪；上下文：$(docker context show)。"
+
+# 包依赖源与镜像来源分开。显式设置优先；自动选择须实际探测包/索引路径。
+probe_source() {
+	local variable="$1" official="$2" fallback="$3" path="$4" result selected='' elapsed
+	if [ -n "${!variable:-}" ]; then
+		log "${variable}：使用显式设置（地址不回显）。"
+		export "$variable"
+		return
+	fi
+	for selected in "$official" "$fallback"; do
+		if result="$(curl -fsSL --connect-timeout 5 --max-time 10 -o /dev/null -w '%{time_total}' "${selected%/}/${path}")"; then
+			elapsed="${result%%.*}"
+			if [ "$elapsed" -lt 5 ]; then
+				printf -v "$variable" '%s' "$selected"
+				export "$variable"
+				if [ "$selected" = "$official" ]; then
+					log "${variable}：官方源通过，耗时 ${result}s。"
+				else
+					log "${variable}：公共源通过，耗时 ${result}s。"
+				fi
+				return
+			fi
+			log "${variable}：源响应超过 5 秒，尝试下一来源。"
+		else
+			log "${variable}：来源探测失败，尝试下一来源。"
+		fi
+	done
+	fail "${variable}：官方和公共来源均未通过探测，停止构建。"
+}
+phase '软件依赖源探测'
+# 用无变量默认值的最小 Compose 读取插值环境，保留环境文件中的显式包源。
+# 所有值仅留内存；不 source、不 eval，不回显完整环境或带凭据的地址。
+source_environment="$(printf 'services: {}\n' | docker compose --env-file "$COMPOSE_ENV_FILES" -f - config --environment 2>/dev/null)" || fail '无法解析环境文件中的软件包源配置。'
+while IFS='=' read -r source_key source_value; do
+	case "$source_key" in
+	NPM_REGISTRY | PIP_INDEX_URL | ALPINE_MIRROR | APT_MIRROR)
+		if [ -n "$source_value" ]; then
+			printf -v "$source_key" '%s' "$source_value"
+			export "$source_key"
+		fi
+		;;
+	esac
+done <<<"$source_environment"
+unset source_environment source_key source_value
+probe_source NPM_REGISTRY https://registry.npmjs.org https://registry.npmmirror.com yarn
+probe_source PIP_INDEX_URL https://pypi.org/simple https://mirrors.aliyun.com/pypi/simple pip/
+probe_source ALPINE_MIRROR https://dl-cdn.alpinelinux.org/alpine https://mirrors.aliyun.com/alpine v3.20/main/aarch64/APKINDEX.tar.gz
+probe_source APT_MIRROR https://deb.debian.org https://mirrors.aliyun.com debian/dists/stable/Release
+log '软件包来源探测完成；以上不是 Docker 镜像吞吐测速。'
+phase 'Docker镜像构建'
+mkdir -p "$BUILD_CACHE_DIR"
+export NEXTCHAT_BUILD_MODE="$BENCH_MODE"
+# 必须经过项目安全包装脚本，保留 BUILDX_CONFIG 与提交号注入。
+NEXTCHAT_SKIP_MIRROR_BENCHMARK=0 "$SAFE_COMPOSE" build || {
+	rc=$?
+	[ "$rc" -ne 4 ] || fail '测速锁被占用，构建未完成，服务未启动。'
+	fail "构建失败（退出码 ${rc}），服务未启动。"
+}
+phase '直接镜像服务检查与拉取'
+images="$(printf '%s' "$compose_json" | jq -r '.services[] | select(.build == null and .image != null) | .image' | sort -u)"
+while IFS= read -r image; do
+	[ -n "$image" ] || continue
+	docker image inspect "$image" >/dev/null 2>&1 && continue
+	bash "$PULL_PREFERRED" --preferred-coverage "$image" || fail '运行镜像预拉取失败，服务未启动。'
+done <<<"$images"
+log '直接镜像服务检查完成（当前三个服务均使用本地构建）。'
+phase '服务启动与健康检查'
+if ! "$SAFE_COMPOSE" up -d --no-build --wait --wait-timeout "$WAIT_TIMEOUT"; then
+	"$SAFE_COMPOSE" ps -a
+	fail '服务未全部健康，请通过安全包装脚本查看日志。'
+fi
+phase '宿主访问检查'
+port="$(printf '%s' "$compose_json" | jq -er '.services["nextchat-dev"].ports[0].published')"
+RUN_VERIFY_URLS="${RUN_VERIFY_URLS:-http://127.0.0.1:${port}/api/config}"
+for url in $RUN_VERIFY_URLS; do
+	curl --noproxy '*' -fsS --connect-timeout 3 --max-time 30 -o /dev/null "$url" || fail '宿主 HTTP 访问核验失败。'
+done
+log '宿主 HTTP 访问核验通过。'
+phase '启动完成'
+log "访问入口：http://127.0.0.1:${port}/chat"
+log '本地免登录用户：ccc；主库及备份库通过 SSH 隧道连接远端。'
+log '数据库凭据不展示；密码显示选项仅适用于未来新增的本地凭据型服务。'
+log '状态与日志：./scripts/docker-compose-safe.sh ps / logs -f nextchat-dev（需保留相同 Compose 环境，见开发文档）。'

@@ -66,3 +66,6 @@ app/mcp/mcp_config.json
 .zcode/
 .dbg/
 .handoff-backups/
+
+# 本地构建缓存
+.cache/

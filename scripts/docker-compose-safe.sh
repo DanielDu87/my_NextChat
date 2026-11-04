@@ -86,13 +86,25 @@ run_fastest_build() {
 
 	if [ -n "$build_args" ]; then
 		eval "set -- $build_args"
-		exec "$BUILD_FASTEST" --compose-build -- "$@"
+	else
+		set --
 	fi
-	exec "$BUILD_FASTEST" --compose-build --
+	case "${NEXTCHAT_BUILD_MODE:-auto}" in
+	all) exec bash "$BUILD_FASTEST" --compose-build --non-interactive --benchmark-all -- "$@" ;;
+	auto) exec bash "$BUILD_FASTEST" --compose-build --non-interactive --preferred-coverage -- "$@" ;;
+	*)
+		printf '%s\n' '[docker-compose-safe] NEXTCHAT_BUILD_MODE 仅支持 auto/all。' >&2
+		exit 2
+		;;
+	esac
 }
 
 # 注意：`up --build` 不含独立的 build 子命令，仍走原生 docker compose 构建。
-if [ "$has_build" -eq 1 ] && [ -x "$BUILD_FASTEST" ] && [ "${NEXTCHAT_SKIP_MIRROR_BENCHMARK:-0}" != "1" ]; then
+if [ "$has_build" -eq 1 ] && [ "${NEXTCHAT_SKIP_MIRROR_BENCHMARK:-0}" != "1" ]; then
+	if [ ! -f "$BUILD_FASTEST" ]; then
+		printf '%s\n' '[docker-compose-safe] 缺少全局构建入口，请设置 DOCKER_FASTEST_WRAPPER；不会绕过入口直接构建。' >&2
+		exit 2
+	fi
 	run_fastest_build "$@" || true
 fi
 

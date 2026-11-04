@@ -1,0 +1,11 @@
+# 独立构建上下文不继承仓库根 .dockerignore。
+.env*
+!.env*.example
+.git
+__pycache__/
+*.py[cod]
+.venv/
+.cache/
+*.log
+data/
+.handoff-backups/

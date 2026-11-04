@@ -4,6 +4,33 @@
 
 ============================================================
 
+## 244. 【2026-11-04 15:42】- Dockerfile 依赖缓存改造：cache mount 补 id、syntax 固定 1.7
+
+### 修改内容
+
+- 根 `Dockerfile`：`# syntax` 由 `docker/dockerfile:1` 固定为 `docker/dockerfile:1.7`；已有三处 cache mount 补项目化 id——`id=nextchat-yarn-cache`（dev 与 deps 阶段的 yarn 缓存，target `/usr/local/share/.cache/yarn`）、`id=nextchat-next-build-cache`（builder 阶段 `.next` 缓存，target `/app/.next/cache`）。此前无 id，缓存按 target 路径全局共享，多项目会互相污染。
+- `scripts/code-interpreter/Dockerfile`：`# syntax=docker/dockerfile:1.7`；pip 安装层加 `--mount=type=cache,id=nextchat-code-interpreter-pip,target=/root/.cache/pip`，并去掉与 cache mount 冲突的 `--no-cache-dir`。
+- `docker/postgres-ssh-tunnel/Dockerfile` 只有 `apk add`，无依赖安装，不需要 cache mount，未改。
+- 基础镜像仍是 `ARG NODE_IMAGE` / `ARG PYTHON_IMAGE` 注入的官方名，未写入加速域名；构建仍经 `scripts/docker-compose-safe.sh` → 全局构建入口。
+- 本轮一并入库本地开发入口 `run` 与 `docker-compose.run.yml`（早前生成、本轮与全局模板对齐后提交）：选项菜单拒绝参数、只读审计先行、软件依赖源探测独立于镜像选源、构建经全局入口（常驻 builder 依赖缓存）、SSH 隧道与免登录覆盖仅进程内生效；配套 `.dockerignore`/`.gitignore`/`README`/`docs/development.md`/`scripts/docker-compose-safe.sh` 同批更新。
+
+### 实现方式
+
+- cache mount 的内容存在 BuildKit builder 状态卷里；全局构建入口默认启用常驻 builder `docker-build-cache`，依赖缓存才能跨构建命中。NextChat 原有的 cache mount 没有 id，BuildKit 会按 target 路径派生全局 id，多项目共用同一缓存目录；补上项目化 id 后互不干扰。
+- 基础镜像与 source 策略仍由全局构建入口按当次测速结果决定，Dockerfile 内不写加速域名。
+
+### 验证
+
+- `docker buildx build --check`：根 `Dockerfile` 仅剩 1 个既有 warning（`CMD` 建议 JSON 形式，源于原有的 proxychains shell 形式启动命令，非本次改动引入）；`scripts/code-interpreter/Dockerfile` 通过。
+
+### 潜在或遗留问题
+
+- 本次未对 NextChat 做真实构建验证（用户要求加快节奏，长构建被中止）；改动为 Dockerfile 指令层（syntax 与 cache mount id），镜像内容不变，建议下次 `docker compose-safe.sh --profile dev build` 时确认。
+- 新的 cache mount id 首次使用为空缓存，第一次构建会重新填充（一次性成本）；之后依赖层重建不再重复下载。
+- 本仓库未提交（用户未授权提交）。
+
+============================================================
+
 ## 243. 【2026-10-22 14:10】- 修复绘图记录被新浏览器覆盖为空、恢复 admin 绘图记录、补生产 pg_dump 备份
 
 ### 修改内容
@@ -25,6 +52,9 @@
 - 容器内 `npx tsc --noEmit` 通过。
 - 全新浏览器（拦截真实写库、记录上传内容）依次访问桌面 `/chat`、移动端 `/draw`、`/draw/history`：3 次 draw-list 上传均为 6 条，历史页显示 6 条，服务端仍为 6 条。
 - `!important` 回退后 70 个状态计算样式与基线一致（残留差异仅为当前模型名称变化导致的标题宽度和备份列表数据变化，截图核对一致）。
+
+- 2026-10-22 15:58 已部署 `fe384583` 到宝塔生产（DEPLOY.md 标准流程，tmux 会话 `nextchat-baota-deploy`，`DEPLOY_EXIT=0`）：容器 healthy；`docker.db` 定向同步备份 `/root/docker.db.bak-nextchat-20261022-155849`；`fix-pg-hba.sh` 添加 `172.20.0.0/16` 规则（原文件备份 `pg_hba.conf.backup.20261022155857`）。线上 `/`、`/chat`、`/draw/history` 200，`/api/db/health` `{"ok":true}`，匿名访问 `/api/proxy`、`/api/tencent` 返回 401、`/api/model-probe` 在 JSON 内返回 401；线上登录页为新设计、无页面错误。回滚镜像 `nextchat-baota:rollback-82aecd2c`（部署前的 latest）。
+- 本次镜像构建约 40 分钟：Dockerfile 基础镜像由 daocloud 前缀改为官方名后缓存失效，apk 安装 201 个编译依赖时单连接仅约 70 KB/s；后续部署可复用缓存。
 
 ### 潜在或遗留问题
 
@@ -275,28 +305,5 @@
 ### 潜在或遗留问题
 
 - 无。
-
-============================================================
-
-## 234. 【2026-08-08 12:46】- 修复备份历史移动端标题逐字换行
-
-### 修改内容
-
-- 修复 `/backup/api_config` 在移动端中“配置备份历史”标题和说明被压缩为逐字竖排的问题。
-- 同步修复 `/backup/chat` 相同的备份历史标题布局冲突，防止同类回归。
-
-### 实现方式
-
-- 两个备份页面的移动端 `.historyHeader` 均使用 `flex-direction: column !important`，覆盖桌面端的横向强制布局。
-- 保留移动端“立即备份”按钮的整行宽度和标题文本满宽规则，使文字在按钮上方按正常行宽换行。
-
-### 验证
-
-- `npx tsc --noEmit --pretty false`、`yarn lint` 和 `git diff --check` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
-- 本地内嵌浏览器在打开 393×852 视口页面前返回 `browser guest not attached (webview not ready)`，因此未能完成 `/backup/api_config` 与 `/backup/chat` 的运行态截图回归。
-
-### 潜在或遗留问题
-
-- 无已知代码遗留问题；待 webview 可用后，需在 393×852 视口确认两个页面的标题说明位于全宽按钮上方且无横向溢出。
 
 ============================================================
