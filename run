@@ -28,20 +28,25 @@ WAIT_TIMEOUT="${RUN_START_TIMEOUT:-300}"
 BENCH_MODE=auto
 CHECK=0
 ALL_CREDENTIALS=0
-PHASE_STARTED=0
 INTERACTIVE=0
 [ -t 0 ] && INTERACTIVE=1
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+	C_BOLD=$'\033[1m' C_GREEN=$'\033[32m' C_RED=$'\033[31m' C_YELLOW=$'\033[33m' C_RESET=$'\033[0m'
+	SYM_OK='✔ ' SYM_WARN='⚠ ' SYM_FAIL='✘ '
+else
+	C_BOLD='' C_GREEN='' C_RED='' C_YELLOW='' C_RESET=''
+	SYM_OK='' SYM_WARN='' SYM_FAIL=''
+fi
 log() { printf '[run] %s\n' "$*"; }
+ok() { printf '%s[run] %s%s%s\n' "$C_GREEN" "$SYM_OK" "$*" "$C_RESET"; }
+warn() { printf '%s[run] %s%s%s\n' "$C_YELLOW" "$SYM_WARN" "$*" "$C_RESET"; }
 fail() {
-	printf '[run] %s\n' "$*" >&2
+	printf '%s[run] %s%s%s\n' "$C_RED" "$SYM_FAIL" "$*" "$C_RESET" >&2
 	exit 1
 }
 phase() {
-	if [ "$PHASE_STARTED" -eq 1 ]; then printf '\n'; fi
-	PHASE_STARTED=1
-	printf '============================================================\n'
-	log "阶段：$*"
-	printf '============================================================\n'
+	printf '\n%s============================================================%s\n' "$C_BOLD" "$C_RESET"
+	printf '%s[run] %s%s\n' "$C_BOLD" "$*" "$C_RESET"
 }
 read_key() {
 	local key=''
@@ -69,14 +74,13 @@ print_last_benchmark() {
 	printf '上次测速（仅历史参考）：\n%s\n' "$summary"
 }
 print_menu() {
-	printf '============================================================\n'
-	log 'NextChat 本地 Docker 开发'
+	phase 'NextChat 本地 Docker 开发'
 	print_last_benchmark
 	printf '  [1] 专属优先，失败先官方、再其它候选测速\n'
 	printf '  [2] 全局所有候选测速，选最快源构建启动\n'
 	printf '  [3] 只读审计（不写文件、不构建、不启动）\n'
 	printf '  [q] 退出\n'
-	printf '============================================================\n'
+	printf '%s============================================================%s\n' "$C_BOLD" "$C_RESET"
 }
 choose_options() {
 	local key
@@ -154,7 +158,7 @@ audit_ports() {
 			fi
 		done <<<"$ids"
 	else
-		log 'Docker daemon 未就绪；只读审计不启动运行时，启动后会重新检查端口。'
+		warn 'Docker daemon 未就绪；只读审计不启动运行时，启动后会重新检查端口。'
 	fi
 	while IFS= read -r port; do
 		[ -n "$port" ] || continue
@@ -185,7 +189,7 @@ cache_parent="$BUILD_CACHE_DIR"
 while [ ! -e "$cache_parent" ]; do cache_parent="$(dirname "$cache_parent")"; done
 [ -d "$cache_parent" ] && [ -w "$cache_parent" ] || fail '构建缓存目录不可写。'
 audit_ports
-log '配置、构建输入、SSH 私钥存在性及宿主端口审计通过。'
+ok '配置、构建输入、SSH 私钥存在性及宿主端口审计通过。'
 [ "$CHECK" -eq 0 ] || exit 0
 
 ensure_docker_runtime() {
@@ -285,7 +289,7 @@ while IFS= read -r image; do
 	docker image inspect "$image" >/dev/null 2>&1 && continue
 	bash "$PULL_PREFERRED" --preferred-coverage "$image" || fail '运行镜像预拉取失败，服务未启动。'
 done <<<"$images"
-log '直接镜像服务检查完成（当前三个服务均使用本地构建）。'
+ok '直接镜像服务检查完成（当前三个服务均使用本地构建）。'
 phase '服务启动与健康检查'
 if ! "$SAFE_COMPOSE" up -d --no-build --wait --wait-timeout "$WAIT_TIMEOUT"; then
 	"$SAFE_COMPOSE" ps -a
@@ -297,7 +301,7 @@ RUN_VERIFY_URLS="${RUN_VERIFY_URLS:-http://127.0.0.1:${port}/api/config}"
 for url in $RUN_VERIFY_URLS; do
 	curl --noproxy '*' -fsS --connect-timeout 3 --max-time 30 -o /dev/null "$url" || fail '宿主 HTTP 访问核验失败。'
 done
-log '宿主 HTTP 访问核验通过。'
+ok '宿主 HTTP 访问核验通过。'
 phase '启动完成'
 log "访问入口：http://127.0.0.1:${port}/chat"
 log '本地免登录用户：ccc；主库及备份库通过 SSH 隧道连接远端。'
