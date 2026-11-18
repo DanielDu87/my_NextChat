@@ -27,14 +27,13 @@ GLOBAL_BENCH_CACHE="${DOCKER_MIRROR_CACHE_FILE:-$HOME/ai_coding_rules/config/doc
 WAIT_TIMEOUT="${RUN_START_TIMEOUT:-300}"
 BENCH_MODE=auto
 CHECK=0
-ALL_CREDENTIALS=0
 INTERACTIVE=0
 [ -t 0 ] && INTERACTIVE=1
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-	C_BOLD=$'\033[1m' C_GREEN=$'\033[32m' C_RED=$'\033[31m' C_YELLOW=$'\033[33m' C_RESET=$'\033[0m'
+	C_GREEN=$'\033[32m' C_RED=$'\033[31m' C_YELLOW=$'\033[33m' C_CYAN=$'\033[36m' C_RESET=$'\033[0m'
 	SYM_OK='✔ ' SYM_WARN='⚠ ' SYM_FAIL='✘ '
 else
-	C_BOLD='' C_GREEN='' C_RED='' C_YELLOW='' C_RESET=''
+	C_GREEN='' C_RED='' C_YELLOW='' C_CYAN='' C_RESET=''
 	SYM_OK='' SYM_WARN='' SYM_FAIL=''
 fi
 log() { printf '[run] %s\n' "$*"; }
@@ -44,9 +43,11 @@ fail() {
 	printf '%s[run] %s%s%s\n' "$C_RED" "$SYM_FAIL" "$*" "$C_RESET" >&2
 	exit 1
 }
+menu_option() { printf '  %s[%s]%s %s\n' "$C_GREEN" "$1" "$C_RESET" "$2"; }
+connection_value() { printf '[run] %s  %s%s%s\n' "$1" "$C_CYAN" "$2" "$C_RESET"; }
 phase() {
-	printf '\n%s============================================================%s\n' "$C_BOLD" "$C_RESET"
-	printf '%s[run] %s%s\n' "$C_BOLD" "$*" "$C_RESET"
+	printf '\n============================================================\n'
+	log "$*"
 }
 read_key() {
 	local key=''
@@ -76,11 +77,11 @@ print_last_benchmark() {
 print_menu() {
 	phase 'NextChat 本地 Docker 开发'
 	print_last_benchmark
-	printf '  [1] 专属优先，失败先官方、再其它候选测速\n'
-	printf '  [2] 全局所有候选测速，选最快源构建启动\n'
-	printf '  [3] 只读审计（不写文件、不构建、不启动）\n'
-	printf '  [q] 退出\n'
-	printf '%s============================================================%s\n' "$C_BOLD" "$C_RESET"
+	menu_option 1 '专属优先，失败先官方、再其它候选测速'
+	menu_option 2 '全局所有候选测速，选最快源构建启动'
+	menu_option 3 '只读审计（不写文件、不构建、不启动）'
+	menu_option q '退出'
+	printf '============================================================\n'
 }
 choose_options() {
 	local key
@@ -109,25 +110,97 @@ choose_options() {
 		*) invalid_key "$key" '可选 1/2/3/q' ;;
 		esac
 	done
-	while true; do
-		if [ "$INTERACTIVE" -eq 1 ]; then
-			printf '密码显示：[1] 明文 / [2] 掩码（默认）\n'
-		fi
-		key="$(read_key)"
-		case "$key" in
-		1)
-			ALL_CREDENTIALS=1
-			break
-			;;
-		2 | '' | $'\n' | $'\r') break ;;
-		*) invalid_key "$key" '可选 1/2' ;;
-		esac
-	done
 	log "构建模式：${BENCH_MODE}；每次启动均重新构建。"
 }
 [ "$#" -eq 0 ] || fail 'run 不接受命令行参数，请直接执行 ./run 按菜单选择。'
 choose_options
 [[ "$WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || fail 'RUN_START_TIMEOUT 必须为正整数。'
+
+# 按实际脚本路径识别旧 run，再停止其构建、预拉取和日志子进程。
+stop_previous_run() {
+	local root="$1" mode="${2:-all}" snapshot self_uid pid cwd targets candidate_roots script_path
+	local -a stopped=() remaining=()
+	local state attempt
+	self_uid="$(id -u)" || return 1
+	snapshot="$(ps -axww -o pid=,ppid=,uid=,etime=,stat=,args=)" || return 1
+
+	# 两轮同时启动时只允许新的一轮停止旧的一轮；同一秒以 PID 排序。
+	candidate_roots="$(awk -v self="$$" -v uid="$self_uid" -v script="$root/run" -v mode="$mode" '
+		function seconds(t, n, a, i, value) {
+			n = split(t, a, /[:-]/)
+			for (i = 1; i <= n; i++) value = value * (n == 4 && i == 2 ? 24 : 60) + a[i]
+			return value
+		}
+		$1 == self { age = seconds($4); found = 1 }
+		$1 ~ /^[0-9]+$/ { parent[$1] = $2 }
+		$3 == uid && $5 !~ /^Z/ && $6 ~ /(^|\/)bash$/ &&
+			($7 == script || $7 == "./run" || $7 == "run") &&
+			(mode != "startup" || NF == 7 || $8 ~ /^(all|start|restart-sub2api|restart-relay)$/ ||
+			 ($8 == "restart" && (NF == 8 || $9 ~ /^(all|sub2api|relay|routes)$/))) {
+			elapsed[$1] = seconds($4)
+			path[$1] = $7
+		}
+		END {
+			if (!found) exit 1
+			for (p = self; p > 1 && p in parent; p = parent[p]) delete path[p]
+			for (p in path)
+				if (elapsed[p] > age || (elapsed[p] == age && p + 0 < self + 0))
+					print p, path[p]
+		}
+	' <<<"$snapshot")" || return 1
+
+	local roots=''
+	while read -r pid script_path; do
+		[[ -n "$pid" ]] || continue
+		if [[ "$script_path" != "$root/run" ]]; then
+			if [[ -d /proc ]]; then
+				cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || continue
+			else
+				cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" || continue
+			fi
+			[[ "$cwd" == "$root" ]] || continue
+		fi
+		roots="$roots $pid"
+	done <<<"$candidate_roots"
+	[[ -n "$roots" ]] || return 0
+
+	targets="$(awk -v roots="$roots" -v self="$$" -v uid="$self_uid" '
+		$1 ~ /^[0-9]+$/ { parent[$1] = $2; if ($3 == uid && $5 !~ /^Z/) owned[$1] = 1 }
+		END {
+			split(roots, a)
+			for (i in a) root[a[i]] = 1
+			for (pid in owned) {
+				for (p = pid; p > 1 && p in parent && p != self; p = parent[p])
+					if (p in root) { print (pid == p ? 0 : 1), pid; break }
+			}
+		}
+	' <<<"$snapshot" | sort -n)" || return 1
+	log '停止上一轮运行及其构建进程'
+	while read -r _ pid; do
+		[[ -n "$pid" ]] || continue
+		kill -TERM "$pid" 2>/dev/null || true
+		stopped+=("$pid")
+	done <<<"$targets"
+	[[ "${#stopped[@]}" -gt 0 ]] || return 0
+
+	# 进程退出后可能暂时保留僵尸条目，此时已不会继续构建。
+	for ((attempt = 0; attempt < 50; attempt++)); do
+		remaining=()
+		for pid in "${stopped[@]}"; do
+			state="$(ps -p "$pid" -o stat= 2>/dev/null)" || continue
+			if [[ ! "$state" =~ ^[[:space:]]*Z ]]; then
+				remaining+=("$pid")
+			fi
+		done
+		if [[ "${#remaining[@]}" -eq 0 ]]; then return 0; fi
+		stopped=("${remaining[@]}")
+		sleep 0.1
+	done
+	log "上一轮进程仍未退出（PID：${stopped[*]}）"
+	return 1
+}
+
+stop_previous_run "$SCRIPT_DIR" || fail '无法停止上一轮运行，已取消本次操作。'
 
 load_config() {
 	# 不走安全包装脚本：该包装脚本会创建 BUILDX_CONFIG 目录，不适用于只读审计。
@@ -290,11 +363,114 @@ while IFS= read -r image; do
 	bash "$PULL_PREFERRED" --preferred-coverage "$image" || fail '运行镜像预拉取失败，服务未启动。'
 done <<<"$images"
 ok '直接镜像服务检查完成（当前三个服务均使用本地构建）。'
-phase '服务启动与健康检查'
-if ! "$SAFE_COMPOSE" up -d --no-build --wait --wait-timeout "$WAIT_TIMEOUT"; then
-	"$SAFE_COMPOSE" ps -a
-	fail '服务未全部健康，请通过安全包装脚本查看日志。'
-fi
+run_compose() { "$SAFE_COMPOSE" "$@"; }
+# 启动期间跟随已运行的服务，退出时只清理本次维护的后台任务。
+RUN_UP_PID=''
+RUN_LOG_PIDS=()
+run_cleanup_start() {
+	local pid
+	set +m
+	for pid in ${RUN_LOG_PIDS[@]+"${RUN_LOG_PIDS[@]}"}; do
+		kill -KILL -- "-$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+	done
+	RUN_LOG_PIDS=()
+	if [ -n "$RUN_UP_PID" ]; then
+		kill -TERM -- "-$RUN_UP_PID" 2>/dev/null || true
+		if kill -0 -- "-$RUN_UP_PID" 2>/dev/null; then sleep 1; fi
+		kill -KILL -- "-$RUN_UP_PID" 2>/dev/null || true
+		wait "$RUN_UP_PID" 2>/dev/null || true
+		RUN_UP_PID=''
+	fi
+} 2>/dev/null
+run_start_failure() {
+	printf '%s[run] %s%s%s\n' "$C_RED" "$SYM_FAIL" "$1" "$C_RESET" >&2
+	run_cleanup_start
+	local service cid
+	run_compose ps -a || true
+	while IFS= read -r service; do
+		[ -n "$service" ] || continue
+		for cid in $(run_compose ps -a -q "$service"); do
+			log "$service"
+			docker inspect --format 'State={{.State.Status}} ExitCode={{.State.ExitCode}} OOM={{.State.OOMKilled}} Restarts={{.RestartCount}}{{if .State.Health}}{{range .State.Health.Log}}{{printf "\n%s exit=%d %s" .Start .ExitCode .Output}}{{end}}{{end}}' "$cid" || true
+		done
+	done <<<"$(run_compose config --services)"
+	run_compose logs --tail=50 --timestamps || true
+	exit 1
+}
+run_start_services() {
+	local expected states svc state health code seen pending summary previous='' following=' ' cid
+	local old_ids='' container_id
+	local deadline=$((SECONDS + WAIT_TIMEOUT)) heartbeat=$((SECONDS + 15))
+	expected="$(run_compose config --services)" || run_start_failure '无法读取预期服务。'
+	[ -n "$expected" ] || run_start_failure '无预期启动服务。'
+	old_ids="$(run_compose ps -a --format '{{.ID}}')" || run_start_failure '无法读取重建前的容器。'
+	trap run_cleanup_start EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	set -m
+	run_compose up -d --no-build "$@" &
+	RUN_UP_PID=$!
+	while :; do
+		states="$(run_compose ps -a --format '{{.Service}}={{.State}}={{.Health}}={{.ExitCode}}={{.ID}}')" ||
+			run_start_failure '无法读取容器状态。'
+		seen=' '
+		summary=''
+		pending=''
+		while IFS='=' read -r svc state health code container_id; do
+			[ -n "$svc" ] || continue
+			if [ -n "$RUN_UP_PID" ] && printf '%s\n' "$old_ids" | grep -Fxq "$container_id"; then
+				continue
+			fi
+			case "$seen" in *" $svc "*) ;; *) seen="$seen$svc " ;; esac
+			summary="$summary $svc=$state${health:+/$health}"
+			if [ "$state" = running ]; then
+				case "$following" in
+				*" $svc "*) ;;
+				*)
+					run_compose logs --follow --tail=50 --timestamps "$svc" &
+					RUN_LOG_PIDS+=("$!")
+					following="$following$svc "
+					;;
+				esac
+			fi
+			case "$state:$health" in
+			dead:* | *:unhealthy) run_start_failure "$svc 异常：$state/${health}，退出码 ${code}。" ;;
+			exited:*)
+				[ "$code" = 0 ] || run_start_failure "$svc 异常退出，退出码 ${code}。"
+				cid="$(run_compose ps -a -q "$svc")" || run_start_failure "无法读取 $svc 的容器。"
+				[ -n "$cid" ] && [ "$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$cid")" = no ] ||
+					run_start_failure "$svc 长期服务已退出。"
+				;;
+			running:healthy | running:) ;;
+			*) pending="$pending $svc" ;;
+			esac
+		done <<<"$states"
+		while IFS= read -r svc; do
+			[ -n "$svc" ] || continue
+			case "$seen" in *" $svc "*) ;; *) pending="$pending $svc" ;; esac
+		done <<<"$expected"
+		if [ -n "$RUN_UP_PID" ] && ! kill -0 "$RUN_UP_PID" 2>/dev/null; then
+			if wait "$RUN_UP_PID"; then RUN_UP_PID=''; else
+				RUN_UP_PID=''
+				run_start_failure 'Docker Compose 启动失败。'
+			fi
+		fi
+		if [ "$summary" != "$previous" ] || [ "$SECONDS" -ge "$heartbeat" ]; then
+			log "服务状态：${summary:-等待创建容器}"
+			previous="$summary"
+			heartbeat=$((SECONDS + 15))
+		fi
+		if [ -z "$RUN_UP_PID" ] && [ -z "$pending" ]; then break; fi
+		[ "$SECONDS" -lt "$deadline" ] || run_start_failure "等待服务就绪超时：${pending:-Compose 启动未完成}。"
+		sleep 3
+	done
+	run_cleanup_start
+	trap - EXIT INT TERM
+}
+
+phase '启动服务并跟随日志'
+run_start_services --force-recreate
 phase '宿主访问检查'
 port="$(printf '%s' "$compose_json" | jq -er '.services["nextchat-dev"].ports[0].published')"
 RUN_VERIFY_URLS="${RUN_VERIFY_URLS:-http://127.0.0.1:${port}/api/config}"
@@ -303,7 +479,7 @@ for url in $RUN_VERIFY_URLS; do
 done
 ok '宿主 HTTP 访问核验通过。'
 phase '启动完成'
-log "访问入口：http://127.0.0.1:${port}/chat"
+connection_value '前端' "http://127.0.0.1:${port}/chat"
+for url in $RUN_VERIFY_URLS; do connection_value 'API 核验入口' "$url"; done
 log '本地免登录用户：ccc；主库及备份库通过 SSH 隧道连接远端。'
-log '数据库凭据不展示；密码显示选项仅适用于未来新增的本地凭据型服务。'
 log '状态与日志：./scripts/docker-compose-safe.sh ps / logs -f nextchat-dev（需保留相同 Compose 环境，见开发文档）。'

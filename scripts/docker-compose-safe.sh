@@ -29,8 +29,7 @@ for arg in "$@"; do
 	fi
 done
 
-# 在函数内解析：函数有独立的位置参数，遇到无法表达的参数时 return 1，
-# 外层仍持有完整原始参数，可原样降级为原生 docker compose，不会丢失已解析的 -f/--env-file。
+# 无法透传的参数应明确报错，避免绕过全局构建分流。
 run_fastest_build() {
 	compose_files=""
 	env_files=""
@@ -41,7 +40,8 @@ run_fastest_build() {
 		case "$1" in
 		-f | --file | --env-file | -p | --project-name | --profile)
 			if [ "$#" -lt 2 ]; then
-				return 1
+				printf '%s\n' '[docker-compose-safe] Compose 全局选项缺少参数值，构建已停止。' >&2
+				return 2
 			fi
 			case "$1" in
 			-f | --file) compose_files="${compose_files:+$compose_files:}$2" ;;
@@ -60,9 +60,8 @@ run_fastest_build() {
 			done
 			;;
 		*)
-			# build 之前的其他 compose 全局参数（含 --env-file=xxx 等写法）无法经环境变量表达，降级为原生构建。
-			echo "[docker-compose-safe] 检测到未识别的 compose 全局参数 '$1'，本次跳过测速直接原生构建。" >&2
-			return 1
+			printf '%s\n' '[docker-compose-safe] Compose 全局参数无法透传，构建已停止。请将 --file、--env-file、--project-name、--profile 与参数值分开书写。' >&2
+			return 2
 			;;
 		esac
 	done
@@ -105,7 +104,8 @@ if [ "$has_build" -eq 1 ] && [ "${NEXTCHAT_SKIP_MIRROR_BENCHMARK:-0}" != "1" ]; 
 		printf '%s\n' '[docker-compose-safe] 缺少全局构建入口，请设置 DOCKER_FASTEST_WRAPPER；不会绕过入口直接构建。' >&2
 		exit 2
 	fi
-	run_fastest_build "$@" || true
+	run_fastest_build "$@"
+	exit $?
 fi
 
 exec docker compose "$@"
